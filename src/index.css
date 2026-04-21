@@ -1,0 +1,73 @@
+:root {
+  color-scheme: dark;
+  --bg: #081117;
+  --panel: rgba(7, 14, 20, 0.86);
+  --panel-soft: rgba(255, 255, 255, 0.035);
+  --text-primary: #f2f7f7;
+  --text-secondary: #8da5a8;
+  --accent: #8ddfd4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+body {
+  color: var(--text-primary);
+  font-family: 'Aptos', 'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif;
+  overflow: hidden;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+img {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin: 0;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.amap-logo,
+.amap-copyright {
+  display: none !important;
+}
