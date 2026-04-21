@@ -1,18 +1,14 @@
-import { useDeferredValue, useState } from 'react';
-import { Image as ImageIcon, QrCode, RefreshCcw, Search, Smartphone, X } from 'lucide-react';
-import type { AlbumSummary, LanServerState } from '../shared/contracts';
+import { memo, useDeferredValue, useState } from 'react';
+import { Image as ImageIcon, RefreshCcw, Search, X } from 'lucide-react';
+import type { AlbumSummary } from '../shared/contracts';
 import { toLocalMediaUrl } from '../shared/media';
 
 interface SidebarProps {
   albums: AlbumSummary[];
   isLoading: boolean;
-  lanQrUrl: string | null;
-  lanUploadState: LanServerState;
   rootFolder: string | null;
   selectedAlbumPath: string | null;
   isOpen: boolean;
-  onStartLanUpload: () => Promise<void>;
-  onStopLanUpload: () => Promise<void>;
   onRefresh: () => void;
   onSelectAlbum: (relativePath: string) => void;
   onClose: () => void;
@@ -30,16 +26,12 @@ function formatUpdatedAt(value: string) {
       }).format(date);
 }
 
-export function Sidebar({
+function SidebarInner({
   albums,
   isLoading,
-  lanQrUrl,
-  lanUploadState,
   rootFolder,
   selectedAlbumPath,
   isOpen,
-  onStartLanUpload,
-  onStopLanUpload,
   onRefresh,
   onSelectAlbum,
   onClose,
@@ -69,47 +61,6 @@ export function Sidebar({
           </button>
         </div>
       </div>
-
-      <section className="sidebar__section sidebar__phone-upload">
-        <div className="sidebar__section-title">
-          <h2>手机上传</h2>
-          {lanUploadState.isRunning ? (
-            <button className="button button--ghost" onClick={onStopLanUpload}>
-              <span>停止</span>
-            </button>
-          ) : (
-            <button className="button button--ghost" onClick={onStartLanUpload}>
-              <QrCode size={16} />
-              <span>启动</span>
-            </button>
-          )}
-        </div>
-
-        <div className="upload-link-card">
-          <div className="upload-link-card__copy">
-            <Smartphone size={18} />
-            <div>
-              <strong>局域网扫码上传</strong>
-              <p>手机和电脑在同一网络下时，可以直接上传原图；如果照片自带 GPS，会自动定位到地图。</p>
-            </div>
-          </div>
-
-          {lanUploadState.isRunning && lanUploadState.url ? (
-            <>
-              {lanQrUrl ? (
-                <img className="upload-qr" src={lanQrUrl} alt="局域网上传二维码" />
-              ) : (
-                <div className="upload-qr upload-qr--placeholder">二维码</div>
-              )}
-              <a className="upload-link-card__url" href={lanUploadState.url} target="_blank" rel="noreferrer">
-                {lanUploadState.url}
-              </a>
-            </>
-          ) : (
-            <p className="sidebar__hint">启动后会显示二维码和访问链接，这个入口始终独立于手动选点。</p>
-          )}
-        </div>
-      </section>
 
       <section className="sidebar__stats">
         <div>
@@ -158,10 +109,11 @@ export function Sidebar({
                 key={album.relativePath}
                 className={`album-row${isActive ? ' album-row--active' : ''}`}
                 onClick={() => onSelectAlbum(album.relativePath)}
+                title={`${album.displayName}\n\n路径：${album.relativePath}\n照片数：${album.imageCount} 张\n最后更新：${formatUpdatedAt(album.updatedAt)}${album.note ? `\n\n留言：${album.note}` : ''}`}
               >
                 <div className="album-row__cover">
                   {album.coverPath ? (
-                    <img src={toLocalMediaUrl(album.coverPath)} alt={album.displayName} />
+                    <img src={toLocalMediaUrl(album.coverPath)} alt={album.displayName} loading="lazy" decoding="async" draggable={false} />
                   ) : (
                     <div className="album-row__cover-fallback">
                       <ImageIcon size={16} />
@@ -184,3 +136,5 @@ export function Sidebar({
     </aside>
   );
 }
+
+export const Sidebar = memo(SidebarInner);

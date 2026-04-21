@@ -22,6 +22,7 @@ declare global {
         sourcePaths: string[],
       ) => Promise<SaveAlbumResult>;
       setAlbumCover: (rootFolder: string, relativePath: string, imageName: string) => Promise<void>;
+      setAlbumNote: (rootFolder: string, relativePath: string, note: string) => Promise<void>;
       reverseGeocodeLocation: (
         location: Pick<AlbumLocationInput, 'lng' | 'lat'>,
       ) => Promise<AlbumLocationInput>;

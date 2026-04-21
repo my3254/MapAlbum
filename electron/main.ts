@@ -16,6 +16,7 @@ const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 const ALBUM_META_FILENAME = '_meta.json';
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif']);
 const AMAP_WEB_KEY = process.env['VITE_AMAP_WEB_KEY'] || '3a1ae688ad052b3465d3d3bba2e84dd2';
+const SHOULD_DISABLE_HARDWARE_ACCELERATION = process.env['MAPALBUM_DISABLE_GPU'] === '1';
 
 type AlbumMetaFile = Omit<AlbumSummary, 'imageCount' | 'coverPath' | 'previewPaths'> & { coverImageName?: string };
 
@@ -23,7 +24,9 @@ let mainWindow: BrowserWindow | null = null;
 let localMediaProtocolRegistered = false;
 const lanUploadService = new LanUploadService(path.join(app.getPath('temp'), 'mapalbum-lan-uploads'));
 
-app.disableHardwareAcceleration();
+if (SHOULD_DISABLE_HARDWARE_ACCELERATION) {
+  app.disableHardwareAcceleration();
+}
 process.env.DIST = DIST_PATH;
 process.env.VITE_PUBLIC = app.isPackaged ? DIST_PATH : PUBLIC_PATH;
 
@@ -230,11 +233,11 @@ async function scanAlbums(rootFolder: string) {
 
 async function saveAlbum(rootFolder: string, location: AlbumLocationInput, sourcePaths: string[]) {
   if (!rootFolder) {
-    throw new Error('尚未选择根目录');
+    throw new Error('尚未选择根目录。');
   }
 
   if (sourcePaths.length === 0) {
-    throw new Error('至少需要选择一张照片');
+    throw new Error('至少需要选择一张照片。');
   }
 
   const draft = createLocationDraft(location);
@@ -255,6 +258,7 @@ async function saveAlbum(rootFolder: string, location: AlbumLocationInput, sourc
 
   const nextMeta: AlbumMetaFile = {
     ...draft,
+    note: existingMeta?.note ?? '',
     createdAt: existingMeta?.createdAt ?? now,
     updatedAt: now,
   };
@@ -270,8 +274,21 @@ async function saveAlbum(rootFolder: string, location: AlbumLocationInput, sourc
 async function setAlbumCover(rootFolder: string, relativePath: string, imageName: string) {
   const albumDirectory = path.join(rootFolder, relativePath);
   const meta = await readAlbumMeta(albumDirectory);
-  if (!meta) throw new Error('相册不存在');
+  if (!meta) {
+    throw new Error('相册不存在。');
+  }
   meta.coverImageName = imageName;
+  meta.updatedAt = new Date().toISOString();
+  await writeAlbumMeta(albumDirectory, meta);
+}
+
+async function setAlbumNote(rootFolder: string, relativePath: string, note: string) {
+  const albumDirectory = path.join(rootFolder, relativePath);
+  const meta = await readAlbumMeta(albumDirectory);
+  if (!meta) {
+    throw new Error('相册不存在。');
+  }
+  meta.note = note.trim();
   meta.updatedAt = new Date().toISOString();
   await writeAlbumMeta(albumDirectory, meta);
 }
@@ -307,26 +324,36 @@ async function reverseGeocodeLocation(location: Pick<AlbumLocationInput, 'lng' |
 
   try {
     const response = await requestJson<{
+      status?: string;
+      info?: string;
       regeocode?: {
         addressComponent?: {
           province?: string;
           city?: string | string[];
           district?: string;
           township?: string;
+          streetNumber?: {
+            street?: string;
+          };
         };
       };
     }>(requestUrl.toString());
 
-    const address = response.regeocode?.addressComponent;
-    const province = address?.province ?? '';
-    const citySource = address?.city;
+    if (response.status !== '1' || !response.regeocode?.addressComponent) {
+      throw new Error(response.info || '高德逆地理编码失败');
+    }
+
+    const address = response.regeocode.addressComponent;
+    const province = address.province ?? '';
+    const citySource = address.city;
     const city = Array.isArray(citySource) ? citySource[0] ?? '' : citySource ?? '';
+    const township = address.township || address.streetNumber?.street || '';
 
     return {
       province,
       city: city || province,
-      district: address?.district ?? '',
-      township: address?.township ?? '',
+      district: address.district ?? '',
+      township,
       lng: location.lng,
       lat: location.lat,
     };
@@ -393,6 +420,10 @@ function registerIpcHandlers() {
 
   ipcMain.handle('albums:setCover', async (_event, rootFolder: string, relativePath: string, imageName: string) => {
     return setAlbumCover(rootFolder, relativePath, imageName);
+  });
+
+  ipcMain.handle('albums:setNote', async (_event, rootFolder: string, relativePath: string, note: string) => {
+    return setAlbumNote(rootFolder, relativePath, note);
   });
 
   ipcMain.handle('location:reverseGeocode', async (_event, location: Pick<AlbumLocationInput, 'lng' | 'lat'>) => {

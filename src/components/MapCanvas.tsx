@@ -1,9 +1,8 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import AMapLoader from '@amap/amap-jsapi-loader';
 import type { AlbumSummary, LocationDraft } from '../shared/contracts';
 import { toLocalMediaUrl } from '../shared/media';
-import { buildAlbumSegments } from '../shared/location';
-import { createLocationDraft } from '../shared/location';
+import { buildAlbumSegments, createLocationDraft } from '../shared/location';
 
 const AMAP_WEB_KEY = import.meta.env.VITE_AMAP_WEB_KEY || '3a1ae688ad052b3465d3d3bba2e84dd2';
 const AMAP_SECURITY_JS_CODE = import.meta.env.VITE_AMAP_SECURITY_JS_CODE;
@@ -16,12 +15,20 @@ interface AggregateNode {
   level: GeoLevel;
   title: string;
   subtitle: string;
+  notePreview: string;
   lng: number;
   lat: number;
   imageCount: number;
   albumCount: number;
   coverPaths: string[];
   albums: AlbumSummary[];
+}
+
+interface MarkerEntry {
+  marker: any;
+  element: HTMLButtonElement;
+  albumPath: string | null;
+  isAggregate: boolean;
 }
 
 function escapeHtml(value: string) {
@@ -69,11 +76,12 @@ function buildAggregateNodes(albums: AlbumSummary[], level: GeoLevel): Aggregate
       level,
       title: album.displayName,
       subtitle: `${album.imageCount} 张照片`,
+      notePreview: (album.note || '').trim(),
       lng: album.lng,
       lat: album.lat,
       imageCount: album.imageCount,
       albumCount: 1,
-      coverPaths: album.previewPaths.length > 0 ? album.previewPaths : album.coverPath ? [album.coverPath] : [],
+      coverPaths: album.coverPath ? [album.coverPath] : album.previewPaths.slice(0, 1),
       albums: [album],
     }));
   }
@@ -95,16 +103,18 @@ function buildAggregateNodes(albums: AlbumSummary[], level: GeoLevel): Aggregate
     const segments = getLevelSegments(groupedAlbums[0], level);
     const title = segments.at(-1) ?? groupedAlbums[0].displayName;
     const subtitle = `${groupedAlbums.length} 个地点 · ${imageCount} 张照片`;
+    const notePreview = groupedAlbums.find((album) => album.note?.trim())?.note?.trim() ?? '';
     const coverPaths = groupedAlbums
-      .flatMap((album) => (album.previewPaths.length > 0 ? album.previewPaths : album.coverPath ? [album.coverPath] : []))
+      .flatMap((album) => (album.coverPath ? [album.coverPath] : album.previewPaths.slice(0, 1)))
       .filter((value, index, list) => Boolean(value) && list.indexOf(value) === index)
-      .slice(0, 4);
+      .slice(0, 1);
 
     return {
       key,
       level,
       title,
       subtitle,
+      notePreview,
       lng,
       lat,
       imageCount,
@@ -123,7 +133,7 @@ function renderMarkerMedia(coverPaths: string[]) {
   return coverPaths
     .map((coverPath, index) => {
       const className = index === 0 ? '' : ` slide-img-${Math.min(index + 1, 4)}`;
-      return `<img${className ? ` class="${className.trim()}"` : ''} src="${toLocalMediaUrl(coverPath)}" alt="" />`;
+      return `<img${className ? ` class="${className.trim()}"` : ''} src="${toLocalMediaUrl(coverPath)}" alt="" loading="lazy" decoding="async" draggable="false" />`;
     })
     .join('');
 }
@@ -137,7 +147,7 @@ interface MapCanvasProps {
   onSelectAlbum: (relativePath: string) => void;
 }
 
-export function MapCanvas({
+function MapCanvasInner({
   albums,
   draftLocation,
   selectedAlbumPath,
@@ -148,15 +158,15 @@ export function MapCanvas({
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const amapRef = useRef<any>(null);
   const mapRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
+  const markersRef = useRef<MarkerEntry[]>([]);
   const draftMarkerRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
-  const [mapZoom, setMapZoom] = useState(4.8);
+  const [visibleLevel, setVisibleLevel] = useState<GeoLevel>('province');
 
   const handleMapError = useEffectEvent(onMapError);
   const handleLocationPicked = useEffectEvent(onLocationPicked);
   const handleSelectAlbum = useEffectEvent(onSelectAlbum);
-  const visibleLevel = useMemo(() => getVisibleLevel(mapZoom), [mapZoom]);
+  const nodes = useMemo(() => buildAggregateNodes(albums, visibleLevel), [albums, visibleLevel]);
 
   useEffect(() => {
     let disposed = false;
@@ -183,7 +193,7 @@ export function MapCanvas({
           mapStyle: 'amap://styles/grey',
           viewMode: '2D',
         });
-        setMapZoom(map.getZoom());
+        setVisibleLevel(getVisibleLevel(map.getZoom()));
 
         const geocoder = new AMap.Geocoder({
           radius: 1000,
@@ -213,7 +223,7 @@ export function MapCanvas({
                 province,
                 city,
                 district: address.district || '',
-                township: address.township || '',
+                township: address.township || address.streetNumber?.street || '',
                 lng: event.lnglat.lng,
                 lat: event.lnglat.lat,
               }),
@@ -227,7 +237,8 @@ export function MapCanvas({
         });
 
         map.on('zoomend', () => {
-          setMapZoom(map.getZoom());
+          const nextLevel = getVisibleLevel(map.getZoom());
+          setVisibleLevel((currentLevel) => (currentLevel === nextLevel ? currentLevel : nextLevel));
         });
 
         amapRef.current = AMap;
@@ -243,7 +254,7 @@ export function MapCanvas({
 
     return () => {
       disposed = true;
-      markersRef.current.forEach((marker) => marker.setMap(null));
+      markersRef.current.forEach(({ marker }) => marker.setMap(null));
       markersRef.current = [];
       amapRef.current = null;
       if (draftMarkerRef.current) {
@@ -262,16 +273,13 @@ export function MapCanvas({
       return;
     }
 
-    markersRef.current.forEach((marker) => marker.setMap(null));
+    markersRef.current.forEach(({ marker }) => marker.setMap(null));
     markersRef.current = [];
-
-    const nodes = buildAggregateNodes(albums, visibleLevel);
 
     nodes.forEach((node) => {
       const markerNode = document.createElement('button');
       const isAlbumNode = node.level === 'album' && node.albums.length === 1;
-      const activeAlbum = isAlbumNode && node.albums[0].relativePath === selectedAlbumPath;
-      markerNode.className = `map-marker${activeAlbum ? ' map-marker--active' : ''}${!isAlbumNode ? ' map-marker--aggregate' : ''}`;
+      markerNode.className = `map-marker${!isAlbumNode ? ' map-marker--aggregate' : ''}`;
       markerNode.type = 'button';
       markerNode.innerHTML = `
         <div class="map-marker__media">
@@ -281,6 +289,7 @@ export function MapCanvas({
         <div class="map-marker__caption">
           <strong>${escapeHtml(node.title)}</strong>
           <span>${escapeHtml(node.subtitle)}</span>
+          ${node.notePreview ? `<p class="map-marker__note">${escapeHtml(node.notePreview)}</p>` : ''}
         </div>
       `;
 
@@ -302,10 +311,21 @@ export function MapCanvas({
       });
 
       marker.setMap(mapRef.current);
-      markersRef.current.push(marker);
+      markersRef.current.push({
+        marker,
+        element: markerNode,
+        albumPath: isAlbumNode ? node.albums[0].relativePath : null,
+        isAggregate: !isAlbumNode,
+      });
     });
+  }, [isReady, nodes]);
 
-  }, [albums, draftLocation, isReady, selectedAlbumPath, visibleLevel]);
+  useEffect(() => {
+    markersRef.current.forEach(({ albumPath, element, isAggregate }) => {
+      const isActive = Boolean(albumPath) && albumPath === selectedAlbumPath;
+      element.className = `map-marker${isActive ? ' map-marker--active' : ''}${isAggregate ? ' map-marker--aggregate' : ''}`;
+    });
+  }, [selectedAlbumPath]);
 
   useEffect(() => {
     if (!isReady || !mapRef.current || markersRef.current.length === 0) {
@@ -313,7 +333,7 @@ export function MapCanvas({
     }
 
     if (!selectedAlbumPath && !draftLocation) {
-      mapRef.current.setFitView(markersRef.current, false, [...MARKER_PADDING]);
+      mapRef.current.setFitView(markersRef.current.map(({ marker }) => marker), false, [...MARKER_PADDING]);
     }
   }, [albums, draftLocation, isReady, selectedAlbumPath]);
 
@@ -359,3 +379,5 @@ export function MapCanvas({
 
   return <div ref={mapElementRef} className="map-canvas" />;
 }
+
+export const MapCanvas = memo(MapCanvasInner);

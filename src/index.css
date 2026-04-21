@@ -1,11 +1,42 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+
 :root {
   color-scheme: dark;
-  --bg: #081117;
-  --panel: rgba(7, 14, 20, 0.86);
-  --panel-soft: rgba(255, 255, 255, 0.035);
-  --text-primary: #f2f7f7;
-  --text-secondary: #8da5a8;
-  --accent: #8ddfd4;
+  
+  /* Core Colors */
+  --bg-base: #050505;
+  --bg-gradient-1: rgba(99, 102, 241, 0.15); /* Indigo */
+  --bg-gradient-2: rgba(16, 185, 129, 0.15); /* Emerald */
+  --bg-gradient-3: rgba(236, 72, 153, 0.15); /* Pink */
+  
+  /* Glass Panels */
+  --glass-bg: rgba(15, 15, 17, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-hover: rgba(255, 255, 255, 0.16);
+  --glass-shadow: 0 24px 40px -8px rgba(0, 0, 0, 0.5);
+  --glass-blur: blur(32px);
+  
+  /* Text */
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.65);
+  --text-tertiary: rgba(255, 255, 255, 0.45);
+  
+  /* Accents */
+  --accent-main: #10b981; /* Emerald */
+  --accent-glow: rgba(16, 185, 129, 0.4);
+  --accent-hover: #34d399;
+  
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+  
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --transition-slow: 500ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 * {
@@ -15,59 +46,68 @@
 html,
 body,
 #root {
-  min-height: 100%;
-}
-
-html,
-body {
+  width: 100%;
+  height: 100%;
   margin: 0;
-  background: var(--bg);
+  padding: 0;
 }
 
 body {
+  background-color: var(--bg-base);
   color: var(--text-primary);
-  font-family: 'Aptos', 'Segoe UI Variable Text', 'Microsoft YaHei UI', sans-serif;
+  font-family: 'Outfit', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button,
-input {
-  font: inherit;
+input,
+textarea {
+  font-family: inherit;
 }
 
 button {
   color: inherit;
+  outline: none;
 }
 
 img {
   max-width: 100%;
+  height: auto;
+  display: block;
 }
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6,
-p {
+h1, h2, h3, h4, h5, h6, p {
   margin: 0;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.15);
+  transition: background var(--transition-fast);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+/* Hide AMAP Logos globally */
 .amap-logo,
 .amap-copyright {
   display: none !important;
+}
+
+::selection {
+  background: var(--accent-glow);
+  color: var(--text-primary);
 }

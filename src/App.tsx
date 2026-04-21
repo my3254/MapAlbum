@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Menu, Settings } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Menu, Settings, Smartphone } from 'lucide-react';
 import './App.css';
 import { InspectorPanel } from './components/InspectorPanel';
+import { LanUploadPanel } from './components/LanUploadPanel';
 import { MapCanvas } from './components/MapCanvas';
 import { Sidebar } from './components/Sidebar';
+import { reverseGeocodeFromPhotoGps, wgs84ToGcj02 } from './shared/amap';
 import type { AlbumSummary, ImportedImageFile, LanServerState, LocationDraft } from './shared/contracts';
 import { createLocationDraft } from './shared/location';
 
@@ -60,6 +62,10 @@ function groupImportedFiles(files: ImportedImageFile[]) {
   };
 }
 
+function hasResolvedAddress(location: (LocationDraft | Pick<LocationDraft, 'province' | 'city' | 'district' | 'township'>) | null) {
+  return Boolean(location?.province || location?.city || location?.district || location?.township);
+}
+
 export default function App() {
   const [albums, setAlbums] = useState<AlbumSummary[]>([]);
   const [albumImages, setAlbumImages] = useState<string[]>([]);
@@ -71,9 +77,12 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
   const [rootFolder, setRootFolder] = useState<string | null>(null);
+  const [hasLoadedRootFolder, setHasLoadedRootFolder] = useState(false);
   const [selectedAlbumPath, setSelectedAlbumPath] = useState<string | null>(null);
   const [stagedImages, setStagedImages] = useState<string[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isLanPanelOpen, setIsLanPanelOpen] = useState(false);
+  const hasPromptedForRootFolderRef = useRef(false);
 
   const selectedAlbum = useMemo(
     () => albums.find((album) => album.relativePath === selectedAlbumPath) ?? null,
@@ -92,11 +101,36 @@ export default function App() {
     if (storedRootFolder) {
       setRootFolder(storedRootFolder);
     }
+    setHasLoadedRootFolder(true);
 
     void window.api.getLanUploadState().then(setLanUploadState).catch((error) => {
       console.error(error);
     });
   }, []);
+
+  useEffect(() => {
+    if (!hasLoadedRootFolder || rootFolder || hasPromptedForRootFolderRef.current) {
+      return;
+    }
+
+    hasPromptedForRootFolderRef.current = true;
+
+    void (async () => {
+      const folder = await window.api.chooseRootFolder();
+      if (!folder) {
+        setNotice('请先选择相册根目录。');
+        return;
+      }
+
+      localStorage.setItem(ROOT_FOLDER_STORAGE_KEY, folder);
+      setRootFolder(folder);
+      setDraftLocation(null);
+      setSelectedAlbumPath(null);
+      setStagedImages([]);
+      setReloadTick((value) => value + 1);
+      setNotice('根目录已设置。');
+    })();
+  }, [hasLoadedRootFolder, rootFolder]);
 
   useEffect(() => {
     if (!rootFolder) {
@@ -118,6 +152,7 @@ export default function App() {
         }
 
         setAlbums(nextAlbums);
+
         if (selectedAlbumPath && !nextAlbums.some((album) => album.relativePath === selectedAlbumPath)) {
           setSelectedAlbumPath(null);
         }
@@ -200,6 +235,7 @@ export default function App() {
         for (const batch of batches) {
           const { gpsGroups, withoutGps } = groupImportedFiles(batch.files);
           const autoSavedAlbums: AlbumSummary[] = [];
+          let manualSelectionCount = withoutGps.length;
 
           if (rootFolder && gpsGroups.length > 0) {
             for (const group of gpsGroups) {
@@ -208,7 +244,23 @@ export default function App() {
                 continue;
               }
 
-              const resolvedLocation = await window.api.reverseGeocodeLocation(gps);
+              const normalizedGps = wgs84ToGcj02(gps.lng, gps.lat);
+              let resolvedLocation = null;
+              try {
+                resolvedLocation = await reverseGeocodeFromPhotoGps(gps);
+              } catch (error) {
+                console.error(error);
+              }
+
+              if (!resolvedLocation || !hasResolvedAddress(resolvedLocation)) {
+                manualSelectionCount += group.length;
+                setStagedImages((current) => mergeUniquePaths(current, group.map((file) => file.path)));
+                if (!draftLocation) {
+                  setSelectedAlbumPath(null);
+                  setDraftLocation(createLocationDraft(normalizedGps));
+                }
+                continue;
+              }
 
               const result = await window.api.saveAlbum(
                 rootFolder,
@@ -229,8 +281,9 @@ export default function App() {
 
             const firstGps = gpsGroups[0][0]?.gps;
             if (firstGps) {
+              const normalizedGps = wgs84ToGcj02(firstGps.lng, firstGps.lat);
               setSelectedAlbumPath(null);
-              setDraftLocation(createLocationDraft(firstGps));
+              setDraftLocation(createLocationDraft(normalizedGps));
             }
           }
 
@@ -240,8 +293,8 @@ export default function App() {
 
           if (rootFolder && autoSavedAlbums.length > 0) {
             const gpsImageCount = gpsGroups.reduce((count, group) => count + group.length, 0);
-            if (withoutGps.length > 0) {
-              setNotice(`已按地理位置自动归档 ${gpsImageCount} 张照片，共生成 ${autoSavedAlbums.length} 个地点相册；另有 ${withoutGps.length} 张照片缺少 GPS，需要手动选点。`);
+            if (manualSelectionCount > 0) {
+              setNotice(`已按地理位置自动归档 ${gpsImageCount} 张照片，共生成 ${autoSavedAlbums.length} 个地点相册；另有部分照片缺少可用地理位置，需要手动选点。`);
             } else {
               setNotice(`已按地理位置自动归档 ${gpsImageCount} 张照片，共生成 ${autoSavedAlbums.length} 个地点相册。`);
             }
@@ -255,7 +308,7 @@ export default function App() {
     }, 1200);
 
     return () => window.clearInterval(timer);
-  }, [lanUploadState.isRunning, rootFolder]);
+  }, [lanUploadState.isRunning, rootFolder, draftLocation]);
 
   async function chooseRootFolder() {
     const folder = await window.api.chooseRootFolder();
@@ -340,6 +393,21 @@ export default function App() {
     }
   }
 
+  async function setAlbumNote(album: AlbumSummary, note: string) {
+    if (!rootFolder) {
+      return;
+    }
+
+    try {
+      await window.api.setAlbumNote(rootFolder, album.relativePath, note);
+      setReloadTick((value) => value + 1);
+      setNotice('留言已保存。');
+    } catch (error) {
+      console.error(error);
+      setNotice('保存留言失败。');
+    }
+  }
+
   async function startLanUpload() {
     try {
       const nextState = await window.api.startLanUpload();
@@ -384,8 +452,11 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="left-toolbar">
-        <button className="toolbar-button" onClick={() => setIsSidebarOpen((value) => !value)} title="切换侧边栏">
+        <button className="toolbar-button" onClick={() => { setIsSidebarOpen((value) => !value); setIsLanPanelOpen(false); }} title="切换侧边栏">
           <Menu size={20} />
+        </button>
+        <button className="toolbar-button" onClick={() => { setIsLanPanelOpen((value) => !value); setIsSidebarOpen(false); }} title="手机上传">
+          <Smartphone size={20} />
         </button>
         <button className="toolbar-button" onClick={chooseRootFolder} title="选择相册根目录">
           <Settings size={20} />
@@ -397,18 +468,23 @@ export default function App() {
         onClose={() => setIsSidebarOpen(false)}
         albums={albums}
         isLoading={isAlbumsLoading}
-        lanQrUrl={lanQrUrl}
-        lanUploadState={lanUploadState}
         rootFolder={rootFolder}
         selectedAlbumPath={selectedAlbumPath}
-        onStartLanUpload={startLanUpload}
-        onStopLanUpload={stopLanUpload}
         onRefresh={() => {
           if (rootFolder) {
             setReloadTick((value) => value + 1);
           }
         }}
         onSelectAlbum={handleSelectAlbum}
+      />
+
+      <LanUploadPanel
+        isOpen={isLanPanelOpen}
+        lanQrUrl={lanQrUrl}
+        lanUploadState={lanUploadState}
+        onClose={() => setIsLanPanelOpen(false)}
+        onStartLanUpload={startLanUpload}
+        onStopLanUpload={stopLanUpload}
       />
 
       <main className="workspace">
@@ -438,6 +514,7 @@ export default function App() {
         onCreateAlbum={createAlbum}
         onRemoveStagedImage={removeStagedImage}
         onSetCover={setAlbumCover}
+        onSetNote={setAlbumNote}
       />
 
       {notice && <div className="notice-bar">{notice}</div>}

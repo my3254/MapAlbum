@@ -84,103 +84,178 @@ function buildUploadPage(uploadUrl: string) {
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MapAlbum 上传</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>MapAlbum 极速上传</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
       :root {
-        color-scheme: light;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color-scheme: dark;
+        --bg-base: #050505;
+        --accent-main: #10b981;
+        --accent-glow: rgba(16, 185, 129, 0.4);
       }
       body {
         margin: 0;
         min-height: 100vh;
-        background: linear-gradient(160deg, #f7fbff, #eef7f1);
-        color: #10202a;
+        background: var(--bg-base);
+        color: #fff;
+        font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: -50%;
+        z-index: -1;
+        background: 
+          radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.15), transparent 40%),
+          radial-gradient(circle at 80% 70%, rgba(16, 185, 129, 0.15), transparent 40%),
+          radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.15), transparent 60%);
+        animation: spin 30s linear infinite;
+        pointer-events: none;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
       }
       main {
-        max-width: 36rem;
+        width: 100%;
+        max-width: 32rem;
         margin: 0 auto;
-        padding: 2rem 1rem 3rem;
+        padding: 2.5rem 1.5rem;
+        box-sizing: border-box;
       }
       .card {
-        background: rgba(255, 255, 255, 0.9);
-        border: 1px solid rgba(16, 32, 42, 0.1);
-        border-radius: 1.25rem;
-        box-shadow: 0 20px 50px rgba(38, 71, 92, 0.12);
-        padding: 1.25rem;
-        backdrop-filter: blur(10px);
+        background: rgba(15, 15, 17, 0.65);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 1.5rem;
+        box-shadow: 0 24px 40px -8px rgba(0, 0, 0, 0.5);
+        padding: 2rem 1.5rem;
+        text-align: center;
       }
       h1 {
-        margin: 0 0 0.5rem;
-        font-size: 1.8rem;
+        margin: 0 0 0.8rem;
+        font-size: 1.6rem;
+        font-weight: 700;
+        background: linear-gradient(to right, #fff, rgba(255,255,255,0.7));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
       }
       p {
         line-height: 1.6;
+        color: rgba(255, 255, 255, 0.65);
+        font-size: 0.95rem;
+        margin-bottom: 1.2rem;
       }
       .url {
         display: inline-block;
-        padding: 0.5rem 0.75rem;
+        padding: 0.5rem 1rem;
         border-radius: 999px;
-        background: #e9f4ff;
-        color: #0c5ea8;
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid var(--accent-glow);
+        color: var(--accent-main);
+        font-family: monospace;
         font-weight: 600;
         word-break: break-all;
+        margin-bottom: 1.5rem;
       }
       form {
         display: grid;
-        gap: 0.9rem;
-        margin-top: 1rem;
+        gap: 1.2rem;
       }
-      input[type="file"] {
+      .file-upload-wrapper {
+        position: relative;
+        overflow: hidden;
+        display: block;
         width: 100%;
       }
-      button {
+      .file-upload-wrapper input[type="file"] {
+        position: absolute;
+        left: 0;
+        top: 0;
+        opacity: 0;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+        z-index: 2;
+      }
+      .file-upload-btn {
+        display: block;
+        width: 100%;
+        padding: 1.2rem;
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.03);
+        border: 2px dashed rgba(255, 255, 255, 0.15);
+        color: #fff;
+        font-weight: 600;
+        transition: all 0.2s;
+        box-sizing: border-box;
+      }
+      .file-upload-wrapper input[type="file"]:focus + .file-upload-btn,
+      .file-upload-wrapper:hover .file-upload-btn {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: var(--accent-main);
+      }
+      button[type="submit"] {
         appearance: none;
         border: 0;
-        border-radius: 999px;
-        background: linear-gradient(135deg, #1261c9, #14a37f);
-        color: white;
-        font-size: 1rem;
+        border-radius: 1rem;
+        background: linear-gradient(135deg, #34d399, #10b981);
+        color: #000;
+        font-size: 1.1rem;
         font-weight: 700;
-        padding: 0.85rem 1rem;
+        padding: 1rem;
+        cursor: pointer;
+        box-shadow: 0 4px 15px var(--accent-glow);
+        transition: transform 0.2s, filter 0.2s;
+      }
+      button[type="submit"]:active {
+        transform: scale(0.96);
       }
       .hint {
-        font-size: 0.92rem;
-        color: #51626d;
+        font-size: 0.85rem;
+        color: rgba(255, 255, 255, 0.45);
+        margin: 0;
       }
       .result {
         display: none;
-        margin-top: 1rem;
-        padding: 0.85rem 1rem;
-        border-radius: 0.9rem;
-        background: #eafaf4;
-        color: #186144;
+        margin-top: 1.5rem;
+        padding: 1rem;
+        border-radius: 1rem;
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid var(--accent-main);
+        color: #fff;
+        font-weight: 500;
       }
       .result.error {
-        background: #fff0ee;
-        color: #b03728;
+        background: rgba(239, 68, 68, 0.1);
+        border-color: #ef4444;
       }
       .progress {
         display: none;
-        margin-top: 1rem;
+        margin-top: 1.5rem;
       }
       .progress-bar {
-        height: 10px;
+        height: 6px;
         border-radius: 999px;
-        background: rgba(16, 32, 42, 0.08);
+        background: rgba(255, 255, 255, 0.1);
         overflow: hidden;
       }
       .progress-bar > span {
         display: block;
         width: 0%;
         height: 100%;
-        background: linear-gradient(135deg, #1261c9, #14a37f);
+        background: linear-gradient(135deg, #34d399, #10b981);
         transition: width 120ms linear;
+        box-shadow: 0 0 10px var(--accent-main);
       }
       .progress-text {
-        margin-top: 0.45rem;
-        font-size: 0.92rem;
-        color: #51626d;
+        margin-top: 0.8rem;
+        font-size: 0.9rem;
+        color: rgba(255, 255, 255, 0.65);
       }
     </style>
   </head>
@@ -191,8 +266,11 @@ function buildUploadPage(uploadUrl: string) {
         <p>保持手机和电脑在同一个局域网，然后选择原始照片上传。MapAlbum 会优先读取照片里的 GPS 信息。</p>
         <p class="url">${escapedUrl}</p>
         <form id="upload-form">
-          <input id="file-input" type="file" name="photos" accept="image/*" multiple required />
-          <button type="submit">开始上传</button>
+          <div class="file-upload-wrapper">
+            <input id="file-input" type="file" name="photos" accept="image/*" multiple required />
+            <div class="file-upload-btn" id="file-label">点击选择多张照片...</div>
+          </div>
+          <button type="submit">开始极速上传</button>
           <p class="hint">建议直接选择原图。经过截图、转发或压缩的图片，GPS 信息可能已经丢失。</p>
         </form>
         <div id="progress" class="progress">
@@ -205,10 +283,23 @@ function buildUploadPage(uploadUrl: string) {
     <script>
       const form = document.getElementById('upload-form');
       const input = document.getElementById('file-input');
+      const label = document.getElementById('file-label');
       const progress = document.getElementById('progress');
       const progressFill = document.getElementById('progress-fill');
       const progressText = document.getElementById('progress-text');
       const result = document.getElementById('result');
+
+      input.addEventListener('change', () => {
+        if (input.files.length > 0) {
+          label.textContent = '已选择 ' + input.files.length + ' 张照片';
+          label.style.borderColor = 'var(--accent-main)';
+          label.style.color = 'var(--accent-main)';
+        } else {
+          label.textContent = '点击选择多张照片...';
+          label.style.borderColor = '';
+          label.style.color = '';
+        }
+      });
 
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -241,7 +332,7 @@ function buildUploadPage(uploadUrl: string) {
 
               const percent = Math.min(100, Math.round((progressEvent.loaded / progressEvent.total) * 100));
               progressFill.style.width = percent + '%';
-              progressText.textContent = '上传中 ' + percent + '%';
+              progressText.textContent = '已上传 ' + percent + '%';
             };
 
             xhr.onload = () => {
@@ -264,10 +355,14 @@ function buildUploadPage(uploadUrl: string) {
           progressFill.style.width = '100%';
           progressText.textContent = '上传完成';
           result.textContent = payload.message || '上传成功';
+          input.value = '';
+          label.textContent = '点击继续选择照片...';
+          label.style.borderColor = '';
+          label.style.color = '';
         } catch (error) {
           result.className = 'result error';
           result.textContent = error instanceof Error ? error.message : '上传失败';
-          progressText.textContent = '上传失败';
+          progressText.textContent = '上传失败，请检查网络';
         }
       });
     </script>

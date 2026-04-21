@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('api', {
   getAlbumImages: (rootFolder, relativePath) => ipcRenderer.invoke('albums:images', rootFolder, relativePath),
   saveAlbum: (rootFolder, location, sourcePaths) => ipcRenderer.invoke('albums:save', rootFolder, location, sourcePaths),
   setAlbumCover: (rootFolder, relativePath, imageName) => ipcRenderer.invoke('albums:setCover', rootFolder, relativePath, imageName),
+  setAlbumNote: (rootFolder, relativePath, note) => ipcRenderer.invoke('albums:setNote', rootFolder, relativePath, note),
   reverseGeocodeLocation: (location) => ipcRenderer.invoke('location:reverseGeocode', location),
   startLanUpload: () => ipcRenderer.invoke('lanUpload:start'),
   stopLanUpload: () => ipcRenderer.invoke('lanUpload:stop'),

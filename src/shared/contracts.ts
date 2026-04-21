@@ -25,6 +25,7 @@ export interface LocationDraft extends AlbumLocationInput {
 
 export interface AlbumSummary extends LocationDraft {
   imageCount: number;
+  note?: string;
   coverPath: string | null;
   previewPaths: string[];
   createdAt: string;
