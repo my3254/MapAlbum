@@ -65,6 +65,7 @@
           ]
         }
       ],
+      "icon": "build/icon.png",
       "artifactName": "小狗相册-安装包-${version}.${ext}"
     },
     "nsis": {

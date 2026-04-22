@@ -16,7 +16,7 @@ const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 const ALBUM_META_FILENAME = '_meta.json';
 const CONFIG_FILENAME = 'config.json';
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif']);
-const AMAP_WEB_KEY = process.env['VITE_AMAP_WEB_KEY'] || '3a1ae688ad052b3465d3d3bba2e84dd2';
+const AMAP_WEB_KEY = process.env['VITE_AMAP_WEB_KEY']?.trim() || '';
 const SHOULD_DISABLE_HARDWARE_ACCELERATION = process.env['MAPALBUM_DISABLE_GPU'] === '1';
 
 function getConfigPath() {
@@ -62,6 +62,7 @@ function buildWindow() {
     backgroundColor: '#081117',
     show: false,
     title: 'MapAlbum',
+    icon: path.join(process.env.VITE_PUBLIC, 'icon.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       color: '#050505',
@@ -431,6 +432,13 @@ function requestJson<T>(url: string) {
 }
 
 async function reverseGeocodeLocation(location: Pick<AlbumLocationInput, 'lng' | 'lat'>): Promise<AlbumLocationInput> {
+  if (!AMAP_WEB_KEY) {
+    return {
+      lng: location.lng,
+      lat: location.lat,
+    };
+  }
+
   const requestUrl = new URL('https://restapi.amap.com/v3/geocode/regeo');
   requestUrl.searchParams.set('key', AMAP_WEB_KEY);
   requestUrl.searchParams.set('location', `${location.lng},${location.lat}`);
@@ -624,4 +632,6 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   void getLanUploadService().stop();
 });
+
+
 

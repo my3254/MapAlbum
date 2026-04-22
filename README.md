@@ -1,97 +1,130 @@
 # MapAlbum
 
-MapAlbum 是一个基于 Electron + React + Vite 的本地地图相册工作台。你在地图上点击任意地点后，可以把照片保存到本地根目录，并按地点自动生成嵌套文件夹。
+MapAlbum is a desktop photo workspace built with Electron, React, and Vite. It organizes photos by geographic location, lets you pick places directly on a map, and stores albums in a nested local folder structure.
 
-## 重写后的结构
+This project is designed for local-first photo management: the app works on your machine, the album root folder is user-selected, and photo files are copied into location-based directories together with metadata.
 
-- `electron/main.ts`
-  Electron 主进程。负责窗口启动、等待 Vite dev server、注册 `local-media://` 协议，以及文件系统相关 IPC。
-- `electron/preload.cjs`
-  CommonJS preload。只暴露精简后的桌面 API，不把 `ipcRenderer` 裸露给前端。
-- `src/shared/contracts.ts`
-  主进程与渲染层共享的数据结构。
-- `src/shared/location.ts`
-  地点路径与显示名称的统一规则。
-- `src/components/Sidebar.tsx`
-  左侧工作台：根目录、统计、相册列表、搜索。
-- `src/components/MapCanvas.tsx`
-  地图主画布：高德地图初始化、逆地理编码、气泡 marker、选中地点高亮。
-- `src/components/InspectorPanel.tsx`
-  右侧详情面板：新地点上传、已有相册预览、追加图片。
+## Features
 
-## 数据流
+- Create albums by clicking a point on the map or searching for a place.
+- Organize photos into nested folders such as province / city / district / street.
+- Store album metadata in `_meta.json`.
+- Browse albums on the map with aggregated markers at different zoom levels.
+- View all photos in a timeline mode.
+- Set album cover images and notes.
+- Import photos from the local computer.
+- Start a LAN upload page so photos can be sent from a phone on the same network.
+- Auto-detect GPS information from uploaded photos and archive them by location when possible.
 
-1. 用户在左侧选择本地根目录。
-2. 前端通过 `window.api.listAlbums(rootFolder)` 扫描根目录下所有地点相册。
-3. 主进程递归查找 `_meta.json`，并统计每个地点目录中的图片数量与封面图。
-4. 点击地图后，前端调用高德逆地理编码，得到省 / 市 / 区 / 街道。
-5. 点击上传后，主进程自动创建嵌套目录，复制图片，并更新 `_meta.json`。
-6. 上传完成后，左侧列表、地图气泡、右侧详情同步刷新。
+## Tech Stack
 
-## 目录约定
+- Electron
+- React
+- Vite
+- TypeScript
+- AMap JavaScript API
 
-MapAlbum 会按地点自动创建嵌套目录，例如：
+## Folder Convention
+
+MapAlbum creates folders automatically based on resolved location data.
 
 ```text
 your-root-folder/
-  浙江省/
-    杭州市/
-      西湖区/
-        灵隐街道/
+  Province/
+    City/
+      District/
+        Township/
           _meta.json
           1713680011223-ab12cd34.jpg
           1713680011555-ef34gh56.png
 ```
 
-`_meta.json` 中保存：
+`_meta.json` stores album metadata such as:
 
-- 经度 `lng`
-- 纬度 `lat`
-- 显示名称 `displayName`
-- 相对路径 `relativePath`
+- `lng`
+- `lat`
+- `displayName`
+- `relativePath`
 - `province`
 - `city`
 - `district`
 - `township`
+- `note`
 - `createdAt`
 - `updatedAt`
 
-## 开发
+## Getting Started
+
+### Requirements
+
+- Node.js 20+
+- npm
+
+### Install
 
 ```bash
 npm install
+```
+
+### Environment Variables
+
+Create `.env.local` in the project root:
+
+```bash
+VITE_AMAP_WEB_KEY=your_amap_web_key
+VITE_AMAP_SECURITY_JS_CODE=your_amap_security_js_code
+```
+
+### Run in Development
+
+```bash
 npm run dev
 ```
 
-当前开发端口固定为 `http://127.0.0.1:5173`，便于 Electron 主进程等待 dev server 就绪。
-
-## 构建
+### Build
 
 ```bash
 npm run build
 ```
 
-构建后：
+### Package for Windows
 
-- 渲染进程产物在 `dist/`
-- Electron 主进程产物在 `dist-electron/`
-- `electron/preload.cjs` 会被复制到 `dist-electron/preload.cjs`
+```bash
+npm run dist:win
+```
 
-## 当前地图配置
+Build output:
 
-- 地图服务：高德地图 JS API 2.0
-- 当前本地开发已配置：
-  `VITE_AMAP_WEB_KEY=3a1ae688ad052b3465d3d3bba2e84dd2`
-  `VITE_AMAP_SECURITY_JS_CODE=6999bc6f1c90e488f335d94449f2718c`
-- 如果你之后更换高德账号或密钥，逆地理编码等服务通常还需要同步更新安全密钥：
-  在项目根目录创建 `.env.local`，加入
-  `VITE_AMAP_WEB_KEY=你的 Web Key`
-  `VITE_AMAP_SECURITY_JS_CODE=你的安全密钥`
+- Renderer bundle: `dist/`
+- Electron bundle: `dist-electron/`
+- Installer output: `release/`
 
-## 已修正的问题
+## Project Structure
 
-- preload 不再依赖不稳定的 ESM `.cjs` 产物
-- 开发模式下 Electron 会等待 Vite dev server 就绪后再加载页面
-- 文件系统逻辑统一收敛到主进程
-- 路径生成逻辑集中管理，避免非法字符和重复层级
-- UI 改成稳定的三栏工作台，而不是零散浮层和内联样式拼接
+- `electron/main.ts`: Electron main process, IPC handlers, filesystem access, reverse geocoding, and local protocol registration.
+- `electron/preload.cjs`: Safe preload bridge exposed to the renderer.
+- `electron/lan-upload.ts`: Temporary LAN upload server for phone-to-desktop imports.
+- `src/components/Sidebar.tsx`: Album list, root folder state, and navigation.
+- `src/components/MapCanvas.tsx`: Map rendering, search, marker aggregation, and location picking.
+- `src/components/InspectorPanel.tsx`: Album detail panel, image import, and album editing.
+- `src/shared/contracts.ts`: Shared types between Electron and the renderer.
+- `src/shared/location.ts`: Location normalization and path generation rules.
+
+## Notes for a Public GitHub Repository
+
+- Do not commit real API keys, security codes, tokens, or personal local paths.
+- Keep `.env.local` local only. It is already covered by `*.local` in `.gitignore`.
+- Do not commit generated folders such as `node_modules/`, `dist/`, `dist-electron/`, or `release/`.
+- Before pushing, review the source code for any hardcoded secrets or environment fallbacks.
+- If you publish this project, use your own map service credentials and make sure usage complies with the provider's terms.
+
+## Current Scope
+
+MapAlbum currently focuses on local desktop workflows:
+
+- local root-folder based album storage
+- map-based geographic album management
+- timeline browsing
+- LAN photo import from mobile devices on the same network
+
+It is not a cloud sync product and does not include user accounts or remote storage by default.
