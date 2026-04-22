@@ -56,7 +56,6 @@
       "main": "dist-electron/main.js"
     },
     "win": {
-      "signAndEditExecutable": false,
       "target": [
         {
           "target": "nsis",
