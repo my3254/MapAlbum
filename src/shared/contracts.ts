@@ -49,3 +49,20 @@ export interface LanServerState {
   host: string | null;
   port: number | null;
 }
+
+export interface ImageMetadata {
+  path: string;
+  mtimeMs: number;
+}
+
+export interface TimelineImageMetadata extends ImageMetadata {
+  albumName: string;
+  albumPath: string;
+}
+
+export interface TimelinePage {
+  items: TimelineImageMetadata[];
+  hasMore: boolean;
+  total: number;
+  nextOffset: number;
+}

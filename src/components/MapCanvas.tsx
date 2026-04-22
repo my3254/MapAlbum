@@ -1,11 +1,10 @@
-import { memo, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import AMapLoader from '@amap/amap-jsapi-loader';
 import type { AlbumSummary, LocationDraft } from '../shared/contracts';
+import { AMAP_WEB_KEY, ensureAmapSecurityConfig } from '../shared/amap-config';
 import { toLocalMediaUrl } from '../shared/media';
 import { buildAlbumSegments, createLocationDraft } from '../shared/location';
 
-const AMAP_WEB_KEY = import.meta.env.VITE_AMAP_WEB_KEY || '3a1ae688ad052b3465d3d3bba2e84dd2';
-const AMAP_SECURITY_JS_CODE = import.meta.env.VITE_AMAP_SECURITY_JS_CODE;
 const MARKER_PADDING = [140, 160, 140, 160] as const;
 
 type GeoLevel = 'province' | 'city' | 'district' | 'album';
@@ -29,6 +28,14 @@ interface MarkerEntry {
   element: HTMLButtonElement;
   albumPath: string | null;
   isAggregate: boolean;
+}
+
+interface SearchResultItem {
+  id: string;
+  title: string;
+  address: string;
+  lng: number;
+  lat: number;
 }
 
 function escapeHtml(value: string) {
@@ -58,6 +65,24 @@ function getTargetZoom(level: GeoLevel) {
   if (level === 'city') return 10.2;
   if (level === 'district') return 12.8;
   return 14.5;
+}
+
+function getCityText(city: string | string[] | undefined, province: string) {
+  if (Array.isArray(city)) {
+    return city[0] ?? province;
+  }
+  return city || province;
+}
+
+function createCoordinateDraft(lng: number, lat: number) {
+  return createLocationDraft({
+    province: '',
+    city: '',
+    district: '',
+    township: '',
+    lng,
+    lat,
+  });
 }
 
 function getLevelSegments(album: AlbumSummary, level: GeoLevel) {
@@ -160,27 +185,130 @@ function MapCanvasInner({
   const mapRef = useRef<any>(null);
   const markersRef = useRef<MarkerEntry[]>([]);
   const draftMarkerRef = useRef<any>(null);
+  const geocoderRef = useRef<any>(null);
+  const placeSearchRef = useRef<any>(null);
+  const searchTokenRef = useRef(0);
   const [isReady, setIsReady] = useState(false);
   const [visibleLevel, setVisibleLevel] = useState<GeoLevel>('province');
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
-  const handleMapError = useEffectEvent(onMapError);
-  const handleLocationPicked = useEffectEvent(onLocationPicked);
-  const handleSelectAlbum = useEffectEvent(onSelectAlbum);
+  const handlersRef = useRef({ onLocationPicked, onSelectAlbum, onMapError });
+  useEffect(() => {
+    handlersRef.current = { onLocationPicked, onSelectAlbum, onMapError };
+  }, [onLocationPicked, onSelectAlbum, onMapError]);
+
   const nodes = useMemo(() => buildAggregateNodes(albums, visibleLevel), [albums, visibleLevel]);
+
+  async function resolveLocationDraft(lng: number, lat: number) {
+    const geocoder = geocoderRef.current;
+    if (!geocoder) {
+      return createCoordinateDraft(lng, lat);
+    }
+
+    return new Promise<LocationDraft>((resolve) => {
+      geocoder.getAddress([lng, lat], (status: string, result: any) => {
+        if (status !== 'complete' || !result?.regeocode?.addressComponent) {
+          resolve(createCoordinateDraft(lng, lat));
+          return;
+        }
+
+        const address = result.regeocode.addressComponent;
+        const province = address.province || '';
+
+        resolve(
+          createLocationDraft({
+            province,
+            city: getCityText(address.city, province),
+            district: address.district || '',
+            township: address.township || address.streetNumber?.street || '',
+            lng,
+            lat,
+          }),
+        );
+      });
+    });
+  }
+
+  async function handleSearch() {
+    const keyword = searchKeyword.trim();
+    if (!keyword) {
+      setSearchResults([]);
+      return;
+    }
+
+    if (!placeSearchRef.current) {
+      handlersRef.current.onMapError('地点搜索服务尚未就绪，请稍后重试。');
+      return;
+    }
+
+    setIsSearching(true);
+    const token = searchTokenRef.current + 1;
+    searchTokenRef.current = token;
+
+    placeSearchRef.current.search(keyword, (status: string, result: any) => {
+      if (searchTokenRef.current !== token) {
+        return;
+      }
+
+      setIsSearching(false);
+
+      if (status !== 'complete') {
+        const detail =
+          typeof result === 'string'
+            ? result
+            : result?.info || result?.message || '未知错误';
+        setSearchResults([]);
+        handlersRef.current.onMapError(`地点搜索失败：${detail}`);
+        return;
+      }
+
+      const pois = Array.isArray(result?.poiList?.pois) ? result.poiList.pois : [];
+      const nextResults = pois
+        .map((poi: any, index: number) => {
+          const lng = typeof poi.location?.lng === 'number' ? poi.location.lng : null;
+          const lat = typeof poi.location?.lat === 'number' ? poi.location.lat : null;
+          if (lng === null || lat === null) {
+            return null;
+          }
+
+          return {
+            id: poi.id || `${poi.name || 'poi'}-${index}`,
+            title: poi.name || '未命名地点',
+            address: poi.address || poi.pname || poi.cityname || poi.adname || '无详细地址',
+            lng,
+            lat,
+          } satisfies SearchResultItem;
+        })
+        .filter((item: SearchResultItem | null): item is SearchResultItem => Boolean(item))
+        .slice(0, 6);
+
+      setSearchResults(nextResults);
+      if (nextResults.length === 0) {
+        handlersRef.current.onMapError(`没有找到与“${keyword}”相关的地点。`);
+      }
+    });
+  }
+
+  async function handlePickSearchResult(result: SearchResultItem) {
+    setSearchKeyword(result.title);
+    setSearchResults([]);
+    mapRef.current?.setZoomAndCenter(14.5, [result.lng, result.lat], true);
+    handlersRef.current.onLocationPicked(await resolveLocationDraft(result.lng, result.lat));
+  }
 
   useEffect(() => {
     let disposed = false;
 
     async function bootstrap() {
       try {
-        if (AMAP_SECURITY_JS_CODE) {
-          window._AMapSecurityConfig = { securityJsCode: AMAP_SECURITY_JS_CODE };
-        }
+        ensureAmapSecurityConfig();
 
         const AMap = await AMapLoader.load({
           key: AMAP_WEB_KEY,
           version: '2.0',
-          plugins: ['AMap.Geocoder'],
+          plugins: ['AMap.Geocoder', 'AMap.PlaceSearch'],
         });
 
         if (disposed || !mapElementRef.current) {
@@ -199,6 +327,13 @@ function MapCanvasInner({
           radius: 1000,
           extensions: 'all',
         });
+        geocoderRef.current = geocoder;
+
+        placeSearchRef.current = new AMap.PlaceSearch({
+          pageSize: 6,
+          pageIndex: 1,
+          extensions: 'base',
+        });
 
         map.on('click', (event: any) => {
           geocoder.getAddress(event.lnglat, (status: string, result: any) => {
@@ -207,21 +342,17 @@ function MapCanvasInner({
                 typeof result === 'string'
                   ? result
                   : result?.info || result?.message || '未知错误';
-              handleMapError(`逆地理编码失败：${detail}`);
+              handlersRef.current.onMapError(`逆地理编码失败：${detail}`);
               return;
             }
 
             const address = result.regeocode.addressComponent;
             const province = address.province || '';
-            let city = address.city || '';
-            if (!city && province) {
-              city = province;
-            }
 
-            handleLocationPicked(
+            handlersRef.current.onLocationPicked(
               createLocationDraft({
                 province,
-                city,
+                city: getCityText(address.city, province),
                 district: address.district || '',
                 township: address.township || address.streetNumber?.street || '',
                 lng: event.lnglat.lng,
@@ -233,7 +364,7 @@ function MapCanvasInner({
 
         geocoder.on('error', (error: any) => {
           const detail = error?.info || error?.message || '未知错误';
-          handleMapError(`逆地理编码失败：${detail}`);
+          handlersRef.current.onMapError(`逆地理编码失败：${detail}`);
         });
 
         map.on('zoomend', () => {
@@ -246,7 +377,7 @@ function MapCanvasInner({
         setIsReady(true);
       } catch (error) {
         console.error(error);
-        handleMapError('高德地图加载失败，请检查网络或 Key 配置。');
+        handlersRef.current.onMapError('高德地图加载失败，请检查网络或 Key 配置。');
       }
     }
 
@@ -257,6 +388,8 @@ function MapCanvasInner({
       markersRef.current.forEach(({ marker }) => marker.setMap(null));
       markersRef.current = [];
       amapRef.current = null;
+      geocoderRef.current = null;
+      placeSearchRef.current = null;
       if (draftMarkerRef.current) {
         draftMarkerRef.current.setMap(null);
         draftMarkerRef.current = null;
@@ -296,13 +429,13 @@ function MapCanvasInner({
       const marker = new amapRef.current.Marker({
         position: [node.lng, node.lat],
         content: markerNode,
-        offset: new amapRef.current.Pixel(-70, -70),
+        offset: new amapRef.current.Pixel(-32, -68),
         title: node.title,
       });
 
       marker.on('click', () => {
         if (isAlbumNode) {
-          handleSelectAlbum(node.albums[0].relativePath);
+          handlersRef.current.onSelectAlbum(node.albums[0].relativePath);
           return;
         }
 
@@ -377,7 +510,47 @@ function MapCanvasInner({
     mapRef.current.setZoom(12.5);
   }, [draftLocation, isReady]);
 
-  return <div ref={mapElementRef} className="map-canvas" />;
+  return (
+    <>
+      <div className="map-search-panel">
+        <div className="map-search-bar">
+          <input
+            type="text"
+            value={searchKeyword}
+            placeholder="搜索地点、商圈、景点或地址"
+            onChange={(event) => setSearchKeyword(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void handleSearch();
+              }
+            }}
+          />
+          <button type="button" className="map-search-bar__button" onClick={() => void handleSearch()}>
+            {isSearching ? '搜索中...' : '搜索'}
+          </button>
+        </div>
+
+        {searchResults.length > 0 && (
+          <div className="map-search-results">
+            {searchResults.map((result) => (
+              <button
+                key={result.id}
+                type="button"
+                className="map-search-result"
+                onClick={() => void handlePickSearchResult(result)}
+              >
+                <strong>{result.title}</strong>
+                <span>{result.address}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div ref={mapElementRef} className="map-canvas" />
+    </>
+  );
 }
 
 export const MapCanvas = memo(MapCanvasInner);

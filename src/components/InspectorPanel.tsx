@@ -1,10 +1,11 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { FileText, Image as ImageIcon, MapPin, Plus, Star, Upload, X } from 'lucide-react';
-import type { AlbumSummary, LocationDraft } from '../shared/contracts';
+import { FileText, Image as ImageIcon, MapPin, Plus, Star, Trash2, Upload, X } from 'lucide-react';
+import type { AlbumSummary, ImageMetadata, LocationDraft } from '../shared/contracts';
 import { toLocalMediaUrl } from '../shared/media';
 
 interface InspectorPanelProps {
-  albumImages: string[];
+  albumImages: ImageMetadata[];
+  deletingImagePath: string | null;
   draftLocation: LocationDraft | null;
   isAlbumImagesLoading: boolean;
   isSaving: boolean;
@@ -15,9 +16,11 @@ interface InspectorPanelProps {
   onCloseDraft: () => void;
   onCloseSelectedAlbum: () => void;
   onCreateAlbum: (location: LocationDraft, sourcePaths: string[]) => Promise<void>;
+  onDeleteImage: (relativePath: string, imagePath: string) => Promise<void>;
   onRemoveStagedImage: (imagePath: string) => void;
   onSetCover: (album: AlbumSummary, imageName: string) => Promise<void>;
   onSetNote: (album: AlbumSummary, note: string) => Promise<void>;
+  onViewImage: (imagePath: string) => void;
 }
 
 function formatCoordinates(lng: number, lat: number) {
@@ -26,6 +29,7 @@ function formatCoordinates(lng: number, lat: number) {
 
 function InspectorPanelInner({
   albumImages,
+  deletingImagePath,
   draftLocation,
   isAlbumImagesLoading,
   isSaving,
@@ -36,13 +40,16 @@ function InspectorPanelInner({
   onCloseDraft,
   onCloseSelectedAlbum,
   onCreateAlbum,
+  onDeleteImage,
   onRemoveStagedImage,
   onSetCover,
   onSetNote,
+  onViewImage,
 }: InspectorPanelProps) {
   const [noteDraft, setNoteDraft] = useState('');
   const [isNoteEditing, setIsNoteEditing] = useState(false);
   const [isNoteSaving, setIsNoteSaving] = useState(false);
+  const [armedDeletePath, setArmedDeletePath] = useState<string | null>(null);
 
   const title = useMemo(() => {
     if (draftLocation) {
@@ -65,6 +72,15 @@ function InspectorPanelInner({
     setIsNoteEditing(false);
     setIsNoteSaving(false);
   }, [selectedAlbum?.relativePath, selectedAlbum?.note]);
+
+  useEffect(() => {
+    if (!armedDeletePath) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setArmedDeletePath(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [armedDeletePath]);
 
   async function handleSubmit() {
     if (stagedImages.length === 0 || isSaving) {
@@ -96,6 +112,21 @@ function InspectorPanelInner({
   }
 
   const isPanelOpen = Boolean(draftLocation || selectedAlbum || stagedImages.length > 0);
+  const orderedAlbumImages = useMemo(() => {
+    if (!selectedAlbum?.coverPath) {
+      return albumImages;
+    }
+
+    return [...albumImages].sort((left, right) => {
+      if (left.path === selectedAlbum.coverPath) {
+        return -1;
+      }
+      if (right.path === selectedAlbum.coverPath) {
+        return 1;
+      }
+      return 0;
+    });
+  }, [albumImages, selectedAlbum?.coverPath]);
 
   return (
     <aside className={`inspector${isPanelOpen ? ' inspector--open' : ''}`}>
@@ -131,7 +162,7 @@ function InspectorPanelInner({
       )}
 
       {(draftLocation || selectedAlbum || stagedImages.length > 0) && (
-        <>
+        <div className={`inspector__content${selectedAlbum ? ' inspector__content--album' : ''}`}>
           {(draftLocation || selectedAlbum) && (
             <section className="inspector__section">
               <div className="inspector__tag">
@@ -194,7 +225,7 @@ function InspectorPanelInner({
             </section>
           )}
 
-          <section className="inspector__section">
+          <section className={`inspector__section${selectedAlbum ? ' inspector__section--photos' : ''}`}>
             <div className="inspector__section-title">
               <h3>{selectedAlbum ? '相册照片' : '待处理照片'}</h3>
               <button className="button button--ghost" onClick={onChooseImages}>
@@ -242,36 +273,65 @@ function InspectorPanelInner({
             {selectedAlbum && (
               <div className="photo-grid">
                 {isAlbumImagesLoading && <p className="muted-line">正在加载相册图片...</p>}
-                {!isAlbumImagesLoading && albumImages.length === 0 && <p className="muted-line">当前相册还没有照片。</p>}
-                {albumImages.map((imagePath) => {
+                {!isAlbumImagesLoading && orderedAlbumImages.length === 0 && <p className="muted-line">当前相册还没有照片。</p>}
+                {orderedAlbumImages.map((entry) => {
+                  const imagePath = entry.path;
                   const imageName = imagePath.split(/[\\/]/).pop() || '';
                   const isCover = selectedAlbum.coverPath === imagePath;
+                  const isDeleteArmed = armedDeletePath === imagePath;
+                  const isDeleting = deletingImagePath === imagePath;
 
                   return (
-                    <figure key={imagePath} className="photo-card" style={{ position: 'relative' }}>
-                      <img src={toLocalMediaUrl(imagePath)} alt={selectedAlbum.displayName} loading="lazy" decoding="async" draggable={false} />
-                      {!isCover && (
-                        <button
-                          className="icon-button icon-button--small"
-                          title="设为封面"
-                          style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(5, 12, 18, 0.72)', width: 28, height: 28 }}
-                          onClick={() => onSetCover(selectedAlbum, imageName)}
-                        >
-                          <Star size={14} />
-                        </button>
-                      )}
-                      {isCover && (
-                        <div style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', background: 'var(--accent-main)', color: '#000', borderRadius: 6, fontSize: 11, fontWeight: 'bold' }}>
-                          封面
+                    <figure
+                      key={imagePath}
+                      className={`photo-card${isDeleteArmed ? ' photo-card--delete-armed' : ''}`}
+                      onClick={() => onViewImage(imagePath)}
+                    >
+                      <div className="photo-card__media">
+                        <img src={toLocalMediaUrl(imagePath)} alt={selectedAlbum.displayName} loading="lazy" decoding="async" draggable={false} />
+                        {isCover && !isDeleteArmed && (
+                          <span className="photo-card__cover-badge">
+                            封面
+                          </span>
+                        )}
+                        <div className="photo-card__actions">
+                          {!isCover && (
+                            <button
+                              className="photo-card__action"
+                              title="设为封面"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void onSetCover(selectedAlbum, imageName);
+                              }}
+                            >
+                              <Star size={16} />
+                            </button>
+                          )}
+                          <button
+                            className={`photo-card__action photo-card__action--danger${isDeleteArmed ? ' photo-card__action--danger-armed' : ''}`}
+                            title={isDeleteArmed ? '再次点击删除' : '删除照片'}
+                            disabled={isDeleting}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (isDeleteArmed) {
+                                setArmedDeletePath(null);
+                                void onDeleteImage(selectedAlbum.relativePath, imagePath);
+                                return;
+                              }
+                              setArmedDeletePath(imagePath);
+                            }}
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
-                      )}
+                      </div>
                     </figure>
                   );
                 })}
               </div>
             )}
           </section>
-        </>
+        </div>
       )}
     </aside>
   );

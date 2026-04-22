@@ -1,8 +1,6 @@
 import AMapLoader from '@amap/amap-jsapi-loader';
 import type { AlbumLocationInput } from './contracts';
-
-const AMAP_WEB_KEY = import.meta.env.VITE_AMAP_WEB_KEY || '3a1ae688ad052b3465d3d3bba2e84dd2';
-const AMAP_SECURITY_JS_CODE = import.meta.env.VITE_AMAP_SECURITY_JS_CODE;
+import { AMAP_WEB_KEY, ensureAmapSecurityConfig } from './amap-config';
 
 let geocoderPromise: Promise<any> | null = null;
 
@@ -52,9 +50,7 @@ export function wgs84ToGcj02(lng: number, lat: number) {
 async function getGeocoder() {
   if (!geocoderPromise) {
     geocoderPromise = (async () => {
-      if (AMAP_SECURITY_JS_CODE) {
-        window._AMapSecurityConfig = { securityJsCode: AMAP_SECURITY_JS_CODE };
-      }
+      ensureAmapSecurityConfig();
 
       const AMap = await AMapLoader.load({
         key: AMAP_WEB_KEY,

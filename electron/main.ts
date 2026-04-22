@@ -1,11 +1,11 @@
-import { randomUUID } from 'crypto';
+﻿import { randomUUID } from 'crypto';
 import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron';
 import { promises as fs } from 'fs';
 import http from 'http';
 import https from 'https';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import type { AlbumLocationInput, AlbumSummary } from '../src/shared/contracts';
+import type { AlbumLocationInput, AlbumSummary, ImageMetadata, TimelineImageMetadata, TimelinePage } from '../src/shared/contracts';
 import { createLocationDraft } from '../src/shared/location';
 import { LanUploadService } from './lan-upload';
 
@@ -14,15 +14,26 @@ const DIST_PATH = path.join(__dirname, '../dist');
 const PUBLIC_PATH = path.join(DIST_PATH, '../public');
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 const ALBUM_META_FILENAME = '_meta.json';
+const CONFIG_FILENAME = 'config.json';
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif']);
 const AMAP_WEB_KEY = process.env['VITE_AMAP_WEB_KEY'] || '3a1ae688ad052b3465d3d3bba2e84dd2';
 const SHOULD_DISABLE_HARDWARE_ACCELERATION = process.env['MAPALBUM_DISABLE_GPU'] === '1';
 
-type AlbumMetaFile = Omit<AlbumSummary, 'imageCount' | 'coverPath' | 'previewPaths'> & { coverImageName?: string };
+function getConfigPath() {
+  return path.join(app.getPath('userData'), CONFIG_FILENAME);
+}
 
 let mainWindow: BrowserWindow | null = null;
 let localMediaProtocolRegistered = false;
-const lanUploadService = new LanUploadService(path.join(app.getPath('temp'), 'mapalbum-lan-uploads'));
+let lanUploadService: LanUploadService | null = null;
+const timelineIndexCache = new Map<string, TimelineImageMetadata[]>();
+
+function getLanUploadService() {
+  if (!lanUploadService) {
+    lanUploadService = new LanUploadService(path.join(app.getPath('temp'), 'mapalbum-lan-uploads'));
+  }
+  return lanUploadService;
+}
 
 if (SHOULD_DISABLE_HARDWARE_ACCELERATION) {
   app.disableHardwareAcceleration();
@@ -51,6 +62,12 @@ function buildWindow() {
     backgroundColor: '#081117',
     show: false,
     title: 'MapAlbum',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#050505',
+      symbolColor: '#ffffff',
+      height: 32,
+    },
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -64,6 +81,7 @@ function buildWindow() {
 
   window.once('ready-to-show', () => {
     window.show();
+    // window.webContents.openDevTools();
   });
 
   return window;
@@ -126,7 +144,7 @@ async function ensureLocalMediaProtocol() {
   localMediaProtocolRegistered = true;
 }
 
-async function listImageFiles(albumDirectory: string) {
+async function listImageFiles(albumDirectory: string): Promise<ImageMetadata[]> {
   let entries: Awaited<ReturnType<typeof fs.readdir>>;
 
   try {
@@ -141,14 +159,12 @@ async function listImageFiles(albumDirectory: string) {
 
   const withStats = await Promise.all(
     imagePaths.map(async (imagePath) => ({
-      imagePath,
-      stat: await fs.stat(imagePath),
+      path: imagePath,
+      mtimeMs: (await fs.stat(imagePath)).mtimeMs,
     })),
   );
 
-  return withStats
-    .sort((left, right) => right.stat.mtimeMs - left.stat.mtimeMs)
-    .map((entry) => entry.imagePath);
+  return withStats.sort((left, right) => right.mtimeMs - left.mtimeMs);
 }
 
 async function readAlbumMeta(albumDirectory: string) {
@@ -169,7 +185,8 @@ async function writeAlbumMeta(albumDirectory: string, meta: AlbumMetaFile) {
 }
 
 async function buildAlbumSummary(rootFolder: string, albumDirectory: string, meta: AlbumMetaFile): Promise<AlbumSummary> {
-  const images = await listImageFiles(albumDirectory);
+  const imageEntries = await listImageFiles(albumDirectory);
+  const images = imageEntries.map((e) => e.path);
 
   let finalCoverPath = images[0] ?? null;
   if (meta.coverImageName) {
@@ -264,6 +281,7 @@ async function saveAlbum(rootFolder: string, location: AlbumLocationInput, sourc
   };
 
   await writeAlbumMeta(albumDirectory, nextMeta);
+  timelineIndexCache.delete(rootFolder);
 
   return {
     album: await buildAlbumSummary(rootFolder, albumDirectory, nextMeta),
@@ -291,6 +309,103 @@ async function setAlbumNote(rootFolder: string, relativePath: string, note: stri
   meta.note = note.trim();
   meta.updatedAt = new Date().toISOString();
   await writeAlbumMeta(albumDirectory, meta);
+}
+
+async function deleteAlbumImage(rootFolder: string, relativePath: string, imageName: string) {
+  if (!rootFolder) {
+    throw new Error('尚未选择根目录。');
+  }
+
+  const safeImageName = path.basename(imageName);
+  if (!safeImageName || !isImageFile(safeImageName)) {
+    throw new Error('无效的图片名称。');
+  }
+
+  const albumDirectory = path.join(rootFolder, relativePath);
+  const imagePath = path.join(albumDirectory, safeImageName);
+  const meta = await readAlbumMeta(albumDirectory);
+  if (!meta) {
+    throw new Error('相册不存在。');
+  }
+
+  await fs.unlink(imagePath);
+
+  const remainingImages = await listImageFiles(albumDirectory);
+  if (meta.coverImageName === safeImageName) {
+    meta.coverImageName = remainingImages[0] ? path.basename(remainingImages[0].path) : '';
+  }
+  meta.updatedAt = new Date().toISOString();
+  await writeAlbumMeta(albumDirectory, meta);
+  timelineIndexCache.delete(rootFolder);
+
+  return {
+    remainingCount: remainingImages.length,
+  };
+}
+
+async function deleteAlbum(rootFolder: string, relativePath: string) {
+  if (!rootFolder) {
+    throw new Error('尚未选择根目录。');
+  }
+
+  const albumDirectory = path.join(rootFolder, relativePath);
+  const meta = await readAlbumMeta(albumDirectory);
+  if (!meta) {
+    throw new Error('相册不存在。');
+  }
+
+  await fs.rm(albumDirectory, { recursive: true, force: false });
+  timelineIndexCache.delete(rootFolder);
+}
+
+async function buildTimelineIndex(rootFolder: string): Promise<TimelineImageMetadata[]> {
+  const albums = await scanAlbums(rootFolder);
+
+  const batches = await Promise.all(
+    albums.map(async (album) => {
+      const images = await listImageFiles(path.join(rootFolder, album.relativePath));
+      return images.map((image) => ({
+        ...image,
+        albumName: album.displayName,
+        albumPath: album.relativePath,
+      }));
+    }),
+  );
+
+  return batches.flat().sort((left, right) => right.mtimeMs - left.mtimeMs);
+}
+
+async function getTimelinePage(
+  rootFolder: string,
+  offset: number,
+  limit: number,
+  refresh = false,
+): Promise<TimelinePage> {
+  if (!rootFolder) {
+    return {
+      items: [],
+      hasMore: false,
+      total: 0,
+      nextOffset: 0,
+    };
+  }
+
+  if (refresh || !timelineIndexCache.has(rootFolder)) {
+    timelineIndexCache.set(rootFolder, await buildTimelineIndex(rootFolder));
+  }
+
+  const items = timelineIndexCache.get(rootFolder) ?? [];
+  const safeOffset = Math.max(0, offset);
+  const safeLimit = Math.max(1, limit);
+  const pageItems = items.slice(safeOffset, safeOffset + safeLimit);
+  const nextOffset = safeOffset + pageItems.length;
+
+  return {
+    items: pageItems,
+    hasMore: nextOffset < items.length,
+    total: items.length,
+    nextOffset,
+  };
 }
 
 function requestJson<T>(url: string) {
@@ -340,7 +455,7 @@ async function reverseGeocodeLocation(location: Pick<AlbumLocationInput, 'lng' |
     }>(requestUrl.toString());
 
     if (response.status !== '1' || !response.regeocode?.addressComponent) {
-      throw new Error(response.info || '高德逆地理编码失败');
+      throw new Error(response.info || '高德逆地理编码失败。');
     }
 
     const address = response.regeocode.addressComponent;
@@ -378,7 +493,34 @@ async function createMainWindow() {
   }
 }
 
+async function getRootFolder() {
+  try {
+    const content = await fs.readFile(getConfigPath(), 'utf-8');
+    const config = JSON.parse(content);
+    return config.rootFolder as string | null;
+  } catch {
+    return null;
+  }
+}
+
+async function setRootFolder(rootFolder: string | null) {
+  try {
+    const config = { rootFolder };
+    await fs.writeFile(getConfigPath(), JSON.stringify(config, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Failed to save config:', error);
+  }
+}
+
 function registerIpcHandlers() {
+  ipcMain.handle('system:getRootFolder', async () => {
+    return getRootFolder();
+  });
+
+  ipcMain.handle('system:setRootFolder', async (_event, rootFolder: string | null) => {
+    return setRootFolder(rootFolder);
+  });
+
   ipcMain.handle('system:chooseRootFolder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow ?? undefined, {
       title: '选择 MapAlbum 根目录',
@@ -414,6 +556,10 @@ function registerIpcHandlers() {
     return listImageFiles(path.join(rootFolder, relativePath));
   });
 
+  ipcMain.handle('timeline:page', async (_event, rootFolder: string, offset: number, limit: number, refresh?: boolean) => {
+    return getTimelinePage(rootFolder, offset, limit, refresh);
+  });
+
   ipcMain.handle('albums:save', async (_event, rootFolder: string, location: AlbumLocationInput, sourcePaths: string[]) => {
     return saveAlbum(rootFolder, location, sourcePaths);
   });
@@ -426,24 +572,32 @@ function registerIpcHandlers() {
     return setAlbumNote(rootFolder, relativePath, note);
   });
 
+  ipcMain.handle('albums:deleteImage', async (_event, rootFolder: string, relativePath: string, imageName: string) => {
+    return deleteAlbumImage(rootFolder, relativePath, imageName);
+  });
+
+  ipcMain.handle('albums:delete', async (_event, rootFolder: string, relativePath: string) => {
+    return deleteAlbum(rootFolder, relativePath);
+  });
+
   ipcMain.handle('location:reverseGeocode', async (_event, location: Pick<AlbumLocationInput, 'lng' | 'lat'>) => {
     return reverseGeocodeLocation(location);
   });
 
   ipcMain.handle('lanUpload:start', async () => {
-    return lanUploadService.start();
+    return getLanUploadService().start();
   });
 
   ipcMain.handle('lanUpload:stop', async () => {
-    return lanUploadService.stop();
+    return getLanUploadService().stop();
   });
 
   ipcMain.handle('lanUpload:getState', async () => {
-    return lanUploadService.getState();
+    return getLanUploadService().getState();
   });
 
   ipcMain.handle('lanUpload:consumeBatches', async () => {
-    return lanUploadService.consumePendingBatches();
+    return getLanUploadService().consumePendingBatches();
   });
 }
 
@@ -468,5 +622,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  void lanUploadService.stop();
+  void getLanUploadService().stop();
 });
+

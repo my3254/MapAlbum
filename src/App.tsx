@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Menu, Settings, Smartphone } from 'lucide-react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { Calendar, Menu, Settings, Smartphone } from 'lucide-react';
 import './App.css';
 import { InspectorPanel } from './components/InspectorPanel';
 import { LanUploadPanel } from './components/LanUploadPanel';
 import { MapCanvas } from './components/MapCanvas';
 import { Sidebar } from './components/Sidebar';
+import { PhotoViewer } from './components/PhotoViewer';
+import { TimelineGallery } from './components/TimelineGallery';
 import { reverseGeocodeFromPhotoGps, wgs84ToGcj02 } from './shared/amap';
-import type { AlbumSummary, ImportedImageFile, LanServerState, LocationDraft } from './shared/contracts';
+import type { AlbumSummary, ImageMetadata, ImportedImageFile, LanServerState, LocationDraft, TimelineImageMetadata } from './shared/contracts';
 import { createLocationDraft } from './shared/location';
 
 const ROOT_FOLDER_STORAGE_KEY = 'mapalbum.root-folder';
@@ -18,6 +20,7 @@ const EMPTY_LAN_STATE: LanServerState = {
 };
 
 const GPS_GROUP_PRECISION = 6;
+const TIMELINE_PAGE_SIZE = 120;
 
 function mergeUniquePaths(current: string[], next: string[]) {
   return Array.from(new Set([...current, ...next]));
@@ -26,7 +29,7 @@ function mergeUniquePaths(current: string[], next: string[]) {
 function summarizeImportedFiles(files: ImportedImageFile[]) {
   const gpsCount = files.filter((file) => file.gps).length;
   if (gpsCount > 0) {
-    return `已接收 ${files.length} 张手机照片，其中 ${gpsCount} 张识别到 GPS 信息并已定位到地图。`;
+    return `已接收 ${files.length} 张手机照片，其中 ${gpsCount} 张识别到 GPS 信息并已定位到地图上。`;
   }
   return `已接收 ${files.length} 张手机照片，但没有识别到 GPS 信息，请在地图上手动选点后再保存。`;
 }
@@ -68,7 +71,7 @@ function hasResolvedAddress(location: (LocationDraft | Pick<LocationDraft, 'prov
 
 export default function App() {
   const [albums, setAlbums] = useState<AlbumSummary[]>([]);
-  const [albumImages, setAlbumImages] = useState<string[]>([]);
+  const [albumImages, setAlbumImages] = useState<ImageMetadata[]>([]);
   const [draftLocation, setDraftLocation] = useState<LocationDraft | null>(null);
   const [isAlbumImagesLoading, setIsAlbumImagesLoading] = useState(false);
   const [isAlbumsLoading, setIsAlbumsLoading] = useState(false);
@@ -82,7 +85,18 @@ export default function App() {
   const [stagedImages, setStagedImages] = useState<string[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLanPanelOpen, setIsLanPanelOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'map' | 'timeline'>('map');
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [viewerSource, setViewerSource] = useState<ImageMetadata[]>([]);
+  const [allImages, setAllImages] = useState<TimelineImageMetadata[]>([]);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
+  const [timelineHasMore, setTimelineHasMore] = useState(false);
+  const [timelineTotal, setTimelineTotal] = useState(0);
+  const [timelineOffset, setTimelineOffset] = useState(0);
+  const [deletingImagePath, setDeletingImagePath] = useState<string | null>(null);
+  const [deletingAlbumPath, setDeletingAlbumPath] = useState<string | null>(null);
   const hasPromptedForRootFolderRef = useRef(false);
+  const isTimelineRequestingRef = useRef(false);
 
   const selectedAlbum = useMemo(
     () => albums.find((album) => album.relativePath === selectedAlbumPath) ?? null,
@@ -97,15 +111,37 @@ export default function App() {
   }, [lanUploadState.url]);
 
   useEffect(() => {
-    const storedRootFolder = localStorage.getItem(ROOT_FOLDER_STORAGE_KEY);
-    if (storedRootFolder) {
-      setRootFolder(storedRootFolder);
-    }
-    setHasLoadedRootFolder(true);
+    async function initialize() {
+      try {
+        let currentRoot = await window.api.getRootFolder();
 
-    void window.api.getLanUploadState().then(setLanUploadState).catch((error) => {
-      console.error(error);
-    });
+        if (!currentRoot) {
+          const legacyRoot = localStorage.getItem(ROOT_FOLDER_STORAGE_KEY);
+          if (legacyRoot) {
+            currentRoot = legacyRoot;
+            await window.api.setRootFolder(currentRoot);
+            localStorage.removeItem(ROOT_FOLDER_STORAGE_KEY);
+          }
+        }
+
+        if (currentRoot) {
+          setRootFolder(currentRoot);
+        }
+      } catch (error) {
+        console.error('Initialization failed:', error);
+      } finally {
+        setHasLoadedRootFolder(true);
+      }
+
+      try {
+        const state = await window.api.getLanUploadState();
+        setLanUploadState(state);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    void initialize();
   }, []);
 
   useEffect(() => {
@@ -115,21 +151,25 @@ export default function App() {
 
     hasPromptedForRootFolderRef.current = true;
 
-    void (async () => {
-      const folder = await window.api.chooseRootFolder();
-      if (!folder) {
-        setNotice('请先选择相册根目录。');
-        return;
+    async function ensureRootFolder() {
+      let folderInProgress = null;
+      while (!folderInProgress) {
+        folderInProgress = await window.api.chooseRootFolder();
+        if (!folderInProgress) {
+          setNotice('MapAlbum 需要先选择一个根目录才能运行，请选择用于存放相册的文件夹。');
+        }
       }
 
-      localStorage.setItem(ROOT_FOLDER_STORAGE_KEY, folder);
-      setRootFolder(folder);
+      await window.api.setRootFolder(folderInProgress);
+      setRootFolder(folderInProgress);
       setDraftLocation(null);
       setSelectedAlbumPath(null);
       setStagedImages([]);
       setReloadTick((value) => value + 1);
-      setNotice('根目录已设置。');
-    })();
+      setNotice('根目录设置成功。');
+    }
+
+    void ensureRootFolder();
   }, [hasLoadedRootFolder, rootFolder]);
 
   useEffect(() => {
@@ -211,6 +251,50 @@ export default function App() {
       cancelled = true;
     };
   }, [rootFolder, selectedAlbumPath]);
+
+  useEffect(() => {
+    if (!rootFolder || viewMode !== 'timeline') {
+      return;
+    }
+
+    const timelineRootFolder = rootFolder;
+    let cancelled = false;
+    async function loadFirstTimelinePage() {
+      isTimelineRequestingRef.current = true;
+      setIsTimelineLoading(true);
+      try {
+        const page = await window.api.getTimelinePage(timelineRootFolder, 0, TIMELINE_PAGE_SIZE, true);
+        if (cancelled) {
+          return;
+        }
+
+        setAllImages(page.items);
+        setTimelineHasMore(page.hasMore);
+        setTimelineTotal(page.total);
+        setTimelineOffset(page.nextOffset);
+      } catch (error) {
+        console.error(error);
+        if (!cancelled) {
+          setNotice('加载全局时间线图片失败。');
+        }
+      } finally {
+        isTimelineRequestingRef.current = false;
+        if (!cancelled) {
+          setIsTimelineLoading(false);
+        }
+      }
+    }
+
+    setAllImages([]);
+    setTimelineHasMore(false);
+    setTimelineTotal(0);
+    setTimelineOffset(0);
+    void loadFirstTimelinePage();
+    return () => {
+      cancelled = true;
+      isTimelineRequestingRef.current = false;
+    };
+  }, [rootFolder, viewMode, reloadTick, albums.length]);
 
   useEffect(() => {
     if (!notice) {
@@ -316,7 +400,7 @@ export default function App() {
       return;
     }
 
-    localStorage.setItem(ROOT_FOLDER_STORAGE_KEY, folder);
+    await window.api.setRootFolder(folder);
     setRootFolder(folder);
     setDraftLocation(null);
     setSelectedAlbumPath(null);
@@ -408,6 +492,58 @@ export default function App() {
     }
   }
 
+  async function deleteAlbumImage(relativePath: string, imagePath: string) {
+    if (!rootFolder) {
+      return;
+    }
+
+    const imageName = imagePath.split(/[\\/]/).pop();
+    if (!imageName) {
+      return;
+    }
+
+    setDeletingImagePath(imagePath);
+    try {
+      await window.api.deleteAlbumImage(rootFolder, relativePath, imageName);
+      setViewerIndex(null);
+      setAlbumImages((current) => current.filter((entry) => entry.path !== imagePath));
+      setAllImages((current) => current.filter((entry) => entry.path !== imagePath));
+      setTimelineTotal((current) => Math.max(0, current - 1));
+      setReloadTick((value) => value + 1);
+      setNotice(`已删除照片 ${imageName}。`);
+    } catch (error) {
+      console.error(error);
+      setNotice(error instanceof Error ? error.message : '删除照片失败。');
+    } finally {
+      setDeletingImagePath(null);
+    }
+  }
+
+  async function deleteAlbum(relativePath: string) {
+    if (!rootFolder) {
+      return;
+    }
+
+    const targetAlbum = albums.find((album) => album.relativePath === relativePath);
+    setDeletingAlbumPath(relativePath);
+    try {
+      await window.api.deleteAlbum(rootFolder, relativePath);
+      setViewerIndex(null);
+      setAlbumImages([]);
+      setAllImages((current) => current.filter((entry) => entry.albumPath !== relativePath));
+      if (selectedAlbumPath === relativePath) {
+        setSelectedAlbumPath(null);
+      }
+      setReloadTick((value) => value + 1);
+      setNotice(`已删除地点 ${targetAlbum?.displayName ?? relativePath}。`);
+    } catch (error) {
+      console.error(error);
+      setNotice(error instanceof Error ? error.message : '删除地点失败。');
+    } finally {
+      setDeletingAlbumPath(null);
+    }
+  }
+
   async function startLanUpload() {
     try {
       const nextState = await window.api.startLanUpload();
@@ -432,7 +568,7 @@ export default function App() {
 
   function handleLocationPicked(location: LocationDraft) {
     if (!rootFolder) {
-      setNotice('请先选择根目录。');
+      void chooseRootFolder();
       return;
     }
 
@@ -443,6 +579,47 @@ export default function App() {
   function handleSelectAlbum(relativePath: string) {
     setDraftLocation(null);
     setSelectedAlbumPath(relativePath);
+    setViewMode('map');
+  }
+
+  function handleViewAlbumImage(imagePath: string) {
+    const index = albumImages.findIndex((entry) => entry.path === imagePath);
+    if (index !== -1) {
+      setViewerSource(albumImages);
+      setViewerIndex(index);
+    }
+  }
+
+  function handleViewTimelineImage(path: string) {
+    const index = allImages.findIndex((img) => img.path === path);
+    if (index !== -1) {
+      setViewerSource(allImages);
+      setViewerIndex(index);
+    }
+  }
+
+  async function handleLoadMoreTimelineImages() {
+    if (!rootFolder || viewMode !== 'timeline' || !timelineHasMore || isTimelineRequestingRef.current) {
+      return;
+    }
+
+    const timelineRootFolder = rootFolder;
+    isTimelineRequestingRef.current = true;
+    setIsTimelineLoading(true);
+
+    try {
+      const page = await window.api.getTimelinePage(timelineRootFolder, timelineOffset, TIMELINE_PAGE_SIZE, false);
+      setAllImages((current) => [...current, ...page.items]);
+      setTimelineHasMore(page.hasMore);
+      setTimelineTotal(page.total);
+      setTimelineOffset(page.nextOffset);
+    } catch (error) {
+      console.error(error);
+      setNotice('加载更多时间线图片失败。');
+    } finally {
+      isTimelineRequestingRef.current = false;
+      setIsTimelineLoading(false);
+    }
   }
 
   function removeStagedImage(imagePath: string) {
@@ -451,12 +628,20 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <div className="titlebar-drag-region" />
       <div className="left-toolbar">
         <button className="toolbar-button" onClick={() => { setIsSidebarOpen((value) => !value); setIsLanPanelOpen(false); }} title="切换侧边栏">
           <Menu size={20} />
         </button>
         <button className="toolbar-button" onClick={() => { setIsLanPanelOpen((value) => !value); setIsSidebarOpen(false); }} title="手机上传">
           <Smartphone size={20} />
+        </button>
+        <button
+          className={`toolbar-button${viewMode === 'timeline' ? ' toolbar-button--active' : ''}`}
+          onClick={() => setViewMode((curr) => (curr === 'timeline' ? 'map' : 'timeline'))}
+          title="时间线视图"
+        >
+          <Calendar size={20} />
         </button>
         <button className="toolbar-button" onClick={chooseRootFolder} title="选择相册根目录">
           <Settings size={20} />
@@ -467,6 +652,7 @@ export default function App() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         albums={albums}
+        deletingAlbumPath={deletingAlbumPath}
         isLoading={isAlbumsLoading}
         rootFolder={rootFolder}
         selectedAlbumPath={selectedAlbumPath}
@@ -475,6 +661,7 @@ export default function App() {
             setReloadTick((value) => value + 1);
           }
         }}
+        onDeleteAlbum={deleteAlbum}
         onSelectAlbum={handleSelectAlbum}
       />
 
@@ -502,6 +689,7 @@ export default function App() {
 
       <InspectorPanel
         albumImages={albumImages}
+        deletingImagePath={deletingImagePath}
         draftLocation={draftLocation}
         isAlbumImagesLoading={isAlbumImagesLoading}
         isSaving={isSaving}
@@ -512,12 +700,60 @@ export default function App() {
         onCloseDraft={() => setDraftLocation(null)}
         onCloseSelectedAlbum={() => setSelectedAlbumPath(null)}
         onCreateAlbum={createAlbum}
+        onDeleteImage={deleteAlbumImage}
         onRemoveStagedImage={removeStagedImage}
         onSetCover={setAlbumCover}
         onSetNote={setAlbumNote}
+        onViewImage={handleViewAlbumImage}
       />
 
+      {viewMode === 'timeline' && (
+        <TimelineGallery
+          deletingImagePath={deletingImagePath}
+          images={allImages}
+          hasMore={timelineHasMore}
+          isLoading={isTimelineLoading}
+          total={timelineTotal}
+          onLoadMore={() => {
+            void handleLoadMoreTimelineImages();
+          }}
+          onDeleteImage={(image) => {
+            void deleteAlbumImage(image.albumPath, image.path);
+          }}
+          onViewImage={handleViewTimelineImage}
+          onClose={() => setViewMode('map')}
+        />
+      )}
+
+      {viewerIndex !== null && (
+        <PhotoViewer
+          images={viewerSource}
+          currentIndex={viewerIndex}
+          onClose={() => setViewerIndex(null)}
+          onIndexChange={setViewerIndex}
+        />
+      )}
+
       {notice && <div className="notice-bar">{notice}</div>}
+      
+      {!rootFolder && hasLoadedRootFolder && (
+        <div className="setup-overlay">
+          <div className="setup-card">
+            <div className="setup-card__brand">
+              <div className="setup-card__eyebrow">Welcome To</div>
+              <h1>MapAlbum</h1>
+            </div>
+            <p>
+              请先选择一个根目录来存放和管理您的照片相册。<br />
+              MapAlbum 将基于此目录生成地理位置归档。
+            </p>
+            <button className="button button--primary" onClick={chooseRootFolder}>
+              立即选择根目录
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
