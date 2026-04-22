@@ -19,8 +19,21 @@ const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bm
 const AMAP_WEB_KEY = process.env['VITE_AMAP_WEB_KEY']?.trim() || '';
 const SHOULD_DISABLE_HARDWARE_ACCELERATION = process.env['MAPALBUM_DISABLE_GPU'] === '1';
 
+if (!app.isPackaged) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'MapAlbum-dev'));
+}
+
 function getConfigPath() {
   return path.join(app.getPath('userData'), CONFIG_FILENAME);
+}
+
+async function isExistingDirectory(targetPath: string) {
+  try {
+    const stats = await fs.stat(targetPath);
+    return stats.isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -505,7 +518,16 @@ async function getRootFolder() {
   try {
     const content = await fs.readFile(getConfigPath(), 'utf-8');
     const config = JSON.parse(content);
-    return config.rootFolder as string | null;
+    const rootFolder = typeof config.rootFolder === 'string' ? config.rootFolder.trim() : '';
+    if (!rootFolder) {
+      return null;
+    }
+
+    if (!(await isExistingDirectory(rootFolder))) {
+      return null;
+    }
+
+    return rootFolder;
   } catch {
     return null;
   }
