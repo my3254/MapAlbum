@@ -1,75 +1,113 @@
-import { QrCode, Smartphone, X } from 'lucide-react';
+import { Copy, HelpCircle, QrCode, Smartphone, Wifi } from 'lucide-react';
 import type { LanServerState } from '../shared/contracts';
 
 interface LanUploadPanelProps {
-  isOpen: boolean;
   lanQrUrl: string | null;
   lanUploadState: LanServerState;
-  onClose: () => void;
   onStartLanUpload: () => Promise<void>;
   onStopLanUpload: () => Promise<void>;
 }
 
 export function LanUploadPanel({
-  isOpen,
   lanQrUrl,
   lanUploadState,
-  onClose,
   onStartLanUpload,
   onStopLanUpload,
 }: LanUploadPanelProps) {
+  const uploadUrl = lanUploadState.url;
+
+  function copyUploadUrl() {
+    if (!uploadUrl) {
+      return;
+    }
+
+    void navigator.clipboard?.writeText(uploadUrl);
+  }
+
   return (
-    <aside className={`lan-panel ${isOpen ? ' lan-panel--open' : ''}`}>
-      <div className="lan-panel__header">
+    <section className="board upload-page">
+      <header className="upload-page__header">
         <div>
-          <p className="sidebar__eyebrow">手机上传</p>
-          <h2>局域网扫码上传</h2>
+          <h1>局域网上传</h1>
+          <p>手机和电脑连接同一网络后，扫码上传照片到本地相册。</p>
         </div>
-        <button className="icon-button" onClick={onClose} title="关闭">
-          <X size={18} />
+        <button type="button" className="ghost-link">
+          <HelpCircle size={15} />
+          <span>使用说明</span>
         </button>
-      </div>
+      </header>
 
-      <section className="lan-panel__section">
-        <div className="upload-link-card">
-          <div className="upload-link-card__copy">
-            <Smartphone size={18} />
-            <div>
-              <strong>上传原图到地图相册</strong>
-              <p>手机和电脑在同一网络下时，可以直接上传原图；如果照片带有 GPS，会自动尝试定位。</p>
-            </div>
+      <div className="upload-page__grid">
+        <article className="upload-card upload-card--service">
+          <div className="upload-card__title">
+            <span>1</span>
+            <h2>启动服务</h2>
           </div>
+          <p>在手机浏览器中打开下方地址或扫描二维码上传照片。</p>
 
-          <div className="lan-panel__actions">
-            {lanUploadState.isRunning ? (
-              <button className="button button--ghost" onClick={onStopLanUpload}>
-                停止上传
-              </button>
+          <div className="lan-qr-frame">
+            {lanUploadState.isRunning && lanQrUrl ? (
+              <img src={lanQrUrl} alt="局域网上传二维码" />
             ) : (
-              <button className="button button--primary" onClick={onStartLanUpload}>
-                <QrCode size={16} />
-                <span>启动上传</span>
-              </button>
+              <div>
+                <QrCode size={84} />
+                <span>启动后显示二维码</span>
+              </div>
             )}
           </div>
 
-          {lanUploadState.isRunning && lanUploadState.url ? (
-            <>
-              {lanQrUrl ? (
-                <img className="upload-qr" src={lanQrUrl} alt="局域网上传二维码" />
-              ) : (
-                <div className="upload-qr upload-qr--placeholder">二维码</div>
-              )}
-              <a className="upload-link-card__url" href={lanUploadState.url} target="_blank" rel="noreferrer">
-                {lanUploadState.url}
-              </a>
-              <p className="sidebar__hint">手机浏览器打开后即可上传照片。没有 GPS 的照片会保留到待处理区，等待你手动选点。</p>
-            </>
+          <div className="upload-field">
+            <span>访问地址</span>
+            <div>
+              <strong>{uploadUrl ?? 'http://192.168.1.100:8080'}</strong>
+              <button type="button" className="icon-button" onClick={copyUploadUrl} disabled={!uploadUrl} title="复制地址">
+                <Copy size={15} />
+              </button>
+            </div>
+          </div>
+
+          <div className="network-box">
+            <Wifi size={17} />
+            <span>
+              <strong>{lanUploadState.host ? 'MapAlbum_SG' : '等待启动服务'}</strong>
+              <small>IP: {lanUploadState.host ?? '192.168.1.100'}</small>
+            </span>
+          </div>
+
+          {lanUploadState.isRunning ? (
+            <button type="button" className="button button--primary button--full" onClick={onStopLanUpload}>
+              停止服务
+            </button>
           ) : (
-            <p className="sidebar__hint">点击“启动上传”后，这里会显示二维码和访问链接。</p>
+            <button type="button" className="button button--primary button--full" onClick={onStartLanUpload}>
+              启动服务
+            </button>
           )}
-        </div>
-      </section>
-    </aside>
+        </article>
+
+        <article className="upload-card upload-card--drop">
+          <div className="upload-card__title">
+            <span>2</span>
+            <h2>上传照片</h2>
+          </div>
+          <div className="phone-stage">
+            <Smartphone size={78} />
+            <strong>等待手机连接...</strong>
+            <p>连接后即可上传照片到本地</p>
+          </div>
+          <div className="upload-stats">
+            <div>
+              <span>已上传照片</span>
+              <strong>0 张</strong>
+            </div>
+            <div>
+              <span>上传大小</span>
+              <strong>0 MB</strong>
+            </div>
+          </div>
+          <footer>提示：请确保手机与电脑在同一局域网内</footer>
+        </article>
+      </div>
+    </section>
   );
 }

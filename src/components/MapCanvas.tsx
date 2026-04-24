@@ -1,11 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import AMapLoader from '@amap/amap-jsapi-loader';
+import { Compass, LocateFixed, Minus, Plus, Search } from 'lucide-react';
 import type { AlbumSummary, LocationDraft } from '../shared/contracts';
 import { AMAP_WEB_KEY, ensureAmapSecurityConfig } from '../shared/amap-config';
-import { toLocalMediaUrl } from '../shared/media';
 import { buildAlbumSegments, createLocationDraft } from '../shared/location';
+import { toLocalMediaUrl } from '../shared/media';
 
-const MARKER_PADDING = [140, 160, 140, 160] as const;
+const MARKER_PADDING = [130, 150, 170, 150] as const;
 
 type GeoLevel = 'province' | 'city' | 'district' | 'album';
 
@@ -18,7 +19,6 @@ interface AggregateNode {
   lng: number;
   lat: number;
   imageCount: number;
-  albumCount: number;
   coverPaths: string[];
   albums: AlbumSummary[];
 }
@@ -36,6 +36,16 @@ interface SearchResultItem {
   address: string;
   lng: number;
   lat: number;
+}
+
+interface MapCanvasProps {
+  albums: AlbumSummary[];
+  draftLocation: LocationDraft | null;
+  selectedAlbumPath: string | null;
+  variant?: 'default' | 'explorer';
+  onLocationPicked: (location: LocationDraft) => void;
+  onMapError: (message: string) => void;
+  onSelectAlbum: (relativePath: string) => void;
 }
 
 function escapeHtml(value: string) {
@@ -105,7 +115,6 @@ function buildAggregateNodes(albums: AlbumSummary[], level: GeoLevel): Aggregate
       lng: album.lng,
       lat: album.lat,
       imageCount: album.imageCount,
-      albumCount: 1,
       coverPaths: album.coverPath ? [album.coverPath] : album.previewPaths.slice(0, 1),
       albums: [album],
     }));
@@ -116,9 +125,7 @@ function buildAggregateNodes(albums: AlbumSummary[], level: GeoLevel): Aggregate
   albums.forEach((album) => {
     const segments = getLevelSegments(album, level);
     const key = segments.join('||');
-    const current = groups.get(key) ?? [];
-    current.push(album);
-    groups.set(key, current);
+    groups.set(key, [...(groups.get(key) ?? []), album]);
   });
 
   return Array.from(groups.entries()).map(([key, groupedAlbums]) => {
@@ -143,7 +150,6 @@ function buildAggregateNodes(albums: AlbumSummary[], level: GeoLevel): Aggregate
       lng,
       lat,
       imageCount,
-      albumCount: groupedAlbums.length,
       coverPaths,
       albums: groupedAlbums,
     };
@@ -156,26 +162,17 @@ function renderMarkerMedia(coverPaths: string[]) {
   }
 
   return coverPaths
-    .map((coverPath, index) => {
-      const className = index === 0 ? '' : ` slide-img-${Math.min(index + 1, 4)}`;
-      return `<img${className ? ` class="${className.trim()}"` : ''} src="${toLocalMediaUrl(coverPath)}" alt="" loading="lazy" decoding="async" draggable="false" />`;
-    })
+    .map((coverPath) => (
+      `<img src="${toLocalMediaUrl(coverPath)}" alt="" loading="lazy" decoding="async" draggable="false" />`
+    ))
     .join('');
-}
-
-interface MapCanvasProps {
-  albums: AlbumSummary[];
-  draftLocation: LocationDraft | null;
-  selectedAlbumPath: string | null;
-  onLocationPicked: (location: LocationDraft) => void;
-  onMapError: (message: string) => void;
-  onSelectAlbum: (relativePath: string) => void;
 }
 
 function MapCanvasInner({
   albums,
   draftLocation,
   selectedAlbumPath,
+  variant = 'default',
   onLocationPicked,
   onMapError,
   onSelectAlbum,
@@ -187,6 +184,7 @@ function MapCanvasInner({
   const draftMarkerRef = useRef<any>(null);
   const geocoderRef = useRef<any>(null);
   const placeSearchRef = useRef<any>(null);
+  const districtLayerRef = useRef<any>(null);
   const searchTokenRef = useRef(0);
   const [isReady, setIsReady] = useState(false);
   const [visibleLevel, setVisibleLevel] = useState<GeoLevel>('province');
@@ -216,7 +214,6 @@ function MapCanvasInner({
 
         const address = result.regeocode.addressComponent;
         const province = address.province || '';
-
         resolve(
           createLocationDraft({
             province,
@@ -255,10 +252,7 @@ function MapCanvasInner({
       setIsSearching(false);
 
       if (status !== 'complete') {
-        const detail =
-          typeof result === 'string'
-            ? result
-            : result?.info || result?.message || '未知错误';
+        const detail = typeof result === 'string' ? result : result?.info || result?.message || '未知错误';
         setSearchResults([]);
         handlersRef.current.onMapError(`地点搜索失败：${detail}`);
         return;
@@ -308,7 +302,7 @@ function MapCanvasInner({
         const AMap = await AMapLoader.load({
           key: AMAP_WEB_KEY,
           version: '2.0',
-          plugins: ['AMap.Geocoder', 'AMap.PlaceSearch'],
+          plugins: ['AMap.Geocoder', 'AMap.PlaceSearch', 'AMap.DistrictLayer'],
         });
 
         if (disposed || !mapElementRef.current) {
@@ -318,39 +312,47 @@ function MapCanvasInner({
         const map = new AMap.Map(mapElementRef.current, {
           zoom: 4.8,
           center: [104.195397, 35.86166],
-          mapStyle: 'amap://styles/dark',
+          mapStyle: 'amap://styles/darkblue',
           viewMode: '2D',
           features: ['bg', 'road', 'point'],
           showLabel: true,
+          pitchEnable: false,
+          zooms: [3.4, 18],
         });
+
+        try {
+          if (AMap.DistrictLayer?.Country) {
+            districtLayerRef.current = new AMap.DistrictLayer.Country({
+              zIndex: 12,
+              SOC: 'CHN',
+              depth: 1,
+              styles: {
+                'nation-stroke': 'rgba(24, 221, 203, 0.64)',
+                'province-stroke': 'rgba(24, 221, 203, 0.28)',
+                'city-stroke': 'rgba(107, 143, 91, 0.22)',
+                fill: 'rgba(3, 21, 24, 0.30)',
+              },
+            });
+            districtLayerRef.current.setMap(map);
+          }
+        } catch (error) {
+          console.warn('District layer unavailable:', error);
+        }
+
         setVisibleLevel(getVisibleLevel(map.getZoom()));
-
-        const geocoder = new AMap.Geocoder({
-          radius: 1000,
-          extensions: 'all',
-        });
-        geocoderRef.current = geocoder;
-
-        placeSearchRef.current = new AMap.PlaceSearch({
-          pageSize: 6,
-          pageIndex: 1,
-          extensions: 'base',
-        });
+        geocoderRef.current = new AMap.Geocoder({ radius: 1000, extensions: 'all' });
+        placeSearchRef.current = new AMap.PlaceSearch({ pageSize: 6, pageIndex: 1, extensions: 'base' });
 
         map.on('click', (event: any) => {
-          geocoder.getAddress(event.lnglat, (status: string, result: any) => {
+          geocoderRef.current.getAddress(event.lnglat, (status: string, result: any) => {
             if (status !== 'complete' || !result?.regeocode) {
-              const detail =
-                typeof result === 'string'
-                  ? result
-                  : result?.info || result?.message || '未知错误';
+              const detail = typeof result === 'string' ? result : result?.info || result?.message || '未知错误';
               handlersRef.current.onMapError(`逆地理编码失败：${detail}`);
               return;
             }
 
             const address = result.regeocode.addressComponent;
             const province = address.province || '';
-
             handlersRef.current.onLocationPicked(
               createLocationDraft({
                 province,
@@ -362,11 +364,6 @@ function MapCanvasInner({
               }),
             );
           });
-        });
-
-        geocoder.on('error', (error: any) => {
-          const detail = error?.info || error?.message || '未知错误';
-          handlersRef.current.onMapError(`逆地理编码失败：${detail}`);
         });
 
         map.on('zoomend', () => {
@@ -396,6 +393,10 @@ function MapCanvasInner({
         draftMarkerRef.current.setMap(null);
         draftMarkerRef.current = null;
       }
+      if (districtLayerRef.current) {
+        districtLayerRef.current.setMap(null);
+        districtLayerRef.current = null;
+      }
       if (mapRef.current) {
         mapRef.current.destroy();
         mapRef.current = null;
@@ -417,9 +418,7 @@ function MapCanvasInner({
       markerNode.className = `map-marker${!isAlbumNode ? ' map-marker--aggregate' : ''}`;
       markerNode.type = 'button';
       markerNode.innerHTML = `
-        <div class="map-marker__media">
-          ${renderMarkerMedia(node.coverPaths)}
-        </div>
+        <div class="map-marker__media">${renderMarkerMedia(node.coverPaths)}</div>
         <div class="map-marker__badge">${node.imageCount}</div>
         <div class="map-marker__caption">
           <strong>${escapeHtml(node.title)}</strong>
@@ -531,17 +530,30 @@ function MapCanvasInner({
   }
 
   return (
-    <div className="map-surface">
+    <div className={`map-surface map-surface--${variant}`}>
       <div ref={mapElementRef} className="map-canvas" />
-      <div className="map-starfield" aria-hidden="true" />
+      <div className="map-china-fallback" aria-hidden="true" />
+      <svg className="map-china-outline" viewBox="0 0 900 520" aria-hidden="true">
+        <path
+          d="M83 244 L132 190 L207 199 L262 141 L351 154 L431 105 L520 132 L603 92 L715 128 L792 190 L765 247 L811 315 L714 341 L663 418 L560 391 L486 455 L388 424 L304 464 L218 419 L144 453 L95 368 L58 302 Z"
+        />
+        <path d="M206 199 L252 258 L333 254 L388 314 L486 286 L560 391" />
+        <path d="M351 154 L354 236 L431 238 L520 132" />
+        <path d="M486 286 L548 220 L640 226 L765 247" />
+        <path d="M304 464 L320 370 L388 314" />
+        <path d="M603 92 L620 176 L715 128" />
+      </svg>
+      <div className="map-glow-points" aria-hidden="true" />
+      <div className="map-texture" aria-hidden="true" />
       <div className="map-vignette" aria-hidden="true" />
 
       <div className="map-search-panel">
-        <div className="map-search-bar">
+        <label className="map-search-bar">
+          <Search size={16} />
           <input
             type="text"
             value={searchKeyword}
-            placeholder="搜索地点、商圈、景点或地址"
+            placeholder="搜索地点、图片..."
             onChange={(event) => setSearchKeyword(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
@@ -550,10 +562,10 @@ function MapCanvasInner({
               }
             }}
           />
-          <button type="button" className="map-search-bar__button" onClick={() => void handleSearch()}>
-            {isSearching ? '搜索中...' : '搜索'}
+          <button type="button" onClick={() => void handleSearch()}>
+            {isSearching ? '搜索中' : '搜索'}
           </button>
-        </div>
+        </label>
 
         {searchResults.length > 0 && (
           <div className="map-search-results">
@@ -573,9 +585,18 @@ function MapCanvasInner({
       </div>
 
       <div className="map-controls" aria-label="地图控制">
-        <button type="button" onClick={resetChinaView} title="回到全国视图">⌖</button>
-        <button type="button" onClick={() => adjustZoom(1)} title="放大">+</button>
-        <button type="button" onClick={() => adjustZoom(-1)} title="缩小">−</button>
+        <button type="button" onClick={resetChinaView} title="回到全国视图">
+          <Compass size={16} />
+        </button>
+        <button type="button" onClick={() => adjustZoom(1)} title="放大">
+          <Plus size={16} />
+        </button>
+        <button type="button" onClick={() => adjustZoom(-1)} title="缩小">
+          <Minus size={16} />
+        </button>
+        <button type="button" onClick={resetChinaView} title="定位">
+          <LocateFixed size={16} />
+        </button>
       </div>
     </div>
   );

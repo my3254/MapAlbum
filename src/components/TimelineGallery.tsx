@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Calendar, Image as ImageIcon, MapPin, Trash2 } from 'lucide-react';
 import type { TimelineImageMetadata } from '../shared/contracts';
 import { toLocalMediaUrl } from '../shared/media';
-import { ArrowLeft, Calendar, Trash2 } from 'lucide-react';
 
 interface TimelineGalleryProps {
   deletingImagePath: string | null;
@@ -15,6 +15,32 @@ interface TimelineGalleryProps {
   onClose: () => void;
 }
 
+function formatMonthLabel(value: number) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return { year: '未知', month: '', title: '未知时间' };
+  }
+
+  return {
+    year: `${date.getFullYear()}年`,
+    month: `${date.getMonth() + 1}月`,
+    title: `${date.getFullYear()}年${date.getMonth() + 1}月`,
+  };
+}
+
+function formatDate(value: number) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '未知日期';
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date).replaceAll('/', '.');
+}
+
 export function TimelineGallery({
   deletingImagePath,
   images,
@@ -24,40 +50,29 @@ export function TimelineGallery({
   onDeleteImage,
   onLoadMore,
   onViewImage,
-  onClose,
 }: TimelineGalleryProps) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [armedDeletePath, setArmedDeletePath] = useState<string | null>(null);
 
-  const groupedImages = useMemo(() => {
-    const groups: Record<string, typeof images> = {};
-    
+  const rows = useMemo(() => {
+    const groups = new Map<string, TimelineImageMetadata[]>();
+
     images.forEach((img) => {
       const date = new Date(img.mtimeMs);
-      const dateKey = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
-      if (!groups[dateKey]) {
-        groups[dateKey] = [];
-      }
-      groups[dateKey].push(img);
+      const key = Number.isNaN(date.getTime()) ? 'unknown' : `${date.getFullYear()}-${date.getMonth() + 1}`;
+      groups.set(key, [...(groups.get(key) ?? []), img]);
     });
 
-    return Object.entries(groups).sort((a, b) => {
-      const timeA = new Date(a[1][0].mtimeMs).getTime();
-      const timeB = new Date(b[1][0].mtimeMs).getTime();
-      return timeB - timeA;
+    return Array.from(groups.values()).map((group) => {
+      const first = group[0];
+      const label = formatMonthLabel(first?.mtimeMs ?? Date.now());
+      return {
+        key: `${label.title}-${first?.path ?? group.length}`,
+        label,
+        images: group,
+      };
     });
   }, [images]);
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
 
   useEffect(() => {
     if (!hasMore || !sentinelRef.current) {
@@ -75,7 +90,7 @@ export function TimelineGallery({
 
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, onLoadMore, images.length]);
+  }, [hasMore, images.length, onLoadMore]);
 
   useEffect(() => {
     if (!armedDeletePath) {
@@ -87,102 +102,85 @@ export function TimelineGallery({
   }, [armedDeletePath]);
 
   return (
-    <div className="timeline-gallery">
-      <div className="timeline-gallery__header">
-        <button type="button" className="timeline-gallery__back" onClick={onClose}>
-          <ArrowLeft size={18} />
-          <span>返回地图</span>
-        </button>
-        <Calendar size={20} />
-        <h2>全量照片时间线</h2>
-        <span className="timeline-gallery__count">已加载 {images.length} / {total || images.length} 张照片</span>
-      </div>
-
-      <div className="timeline-gallery__main">
-        <div className="timeline-gallery__scroll-area">
-          {groupedImages.map(([date, group]) => (
-            <section key={date} id={`anchor-${date}`} className="timeline-group">
-              <header className="timeline-group__header">
-              <h3>{date}</h3>
-              <span className="timeline-group__count">{group.length} 张</span>
-            </header>
-            <div className="timeline-grid">
-              {group.map((img) => (
-                <div
-                  key={img.path}
-                  className={`timeline-item${armedDeletePath === img.path ? ' timeline-item--delete-armed' : ''}`}
-                  onClick={() => onViewImage(img.path)}
-                >
-                  <img
-                    src={toLocalMediaUrl(img.path)}
-                    alt={img.albumName}
-                    loading="lazy"
-                  />
-                  <button
-                    type="button"
-                    className={`timeline-item__delete${armedDeletePath === img.path ? ' timeline-item__delete--armed' : ''}`}
-                    title={armedDeletePath === img.path ? '再次点击删除' : '删除照片'}
-                    disabled={deletingImagePath === img.path}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (armedDeletePath === img.path) {
-                        setArmedDeletePath(null);
-                        onDeleteImage(img);
-                        return;
-                      }
-                      setArmedDeletePath(img.path);
-                    }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                  <div className="timeline-item__overlay">
-                    <span>{img.albumName}</span>
-                  </div>
-                  {armedDeletePath === img.path && (
-                    <div className="timeline-item__delete-prompt">
-                      <Trash2 size={14} />
-                      <span>{deletingImagePath === img.path ? '删除中...' : '再次点击删除'}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-        ))}
-
-          {(isLoading || hasMore) && (
-            <div ref={sentinelRef} className="timeline-gallery__loader">
-              <span>{isLoading ? '正在加载更多照片...' : '向下滚动继续加载'}</span>
-            </div>
-          )}
+    <section className="board timeline-page">
+      <header className="timeline-page__header">
+        <div>
+          <h1>时间线</h1>
+          <p>按时间整理所有相册照片</p>
         </div>
+        <span>{images.length} / {total || images.length} 张照片</span>
+      </header>
 
-        <nav className="timeline-anchor-sidebar">
-          {groupedImages.map(([date]) => {
-            const shortDate = date.replace(/年|月/g, '.').replace(/日/, '');
-            return (
-              <button
-                key={date}
-                type="button"
-                className="timeline-anchor-item"
-                onClick={() => {
-                  const el = document.getElementById(`anchor-${date}`);
-                  const container = document.querySelector('.timeline-gallery__scroll-area');
-                  if (el && container) {
-                    const topOffset = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
-                    container.scrollTo({
-                      top: container.scrollTop + topOffset - 40,
-                      behavior: 'smooth'
-                    });
-                  }
-                }}
-              >
-                {shortDate}
+      <div className="timeline-road">
+        {rows.length === 0 && (
+          <div className="empty-panel">
+            <span><Calendar size={28} /></span>
+            <strong>{isLoading ? '正在加载时间线...' : '暂无时间线照片'}</strong>
+          </div>
+        )}
+
+        {rows.map((row) => {
+          const primary = row.images[0];
+          const preview = row.images.slice(0, 4);
+          const last = row.images[row.images.length - 1] ?? primary;
+
+          return (
+            <article key={row.key} className="timeline-row">
+              <div className="timeline-row__date">
+                <strong>{row.label.year}</strong>
+                <span>{row.label.month}</span>
+              </div>
+              <div className="timeline-row__dot" />
+              <button type="button" className="timeline-row__cover" onClick={() => primary && onViewImage(primary.path)}>
+                {primary ? (
+                  <img src={toLocalMediaUrl(primary.path)} alt={primary.albumName} loading="lazy" decoding="async" draggable={false} />
+                ) : (
+                  <ImageIcon size={22} />
+                )}
               </button>
-            );
-          })}
-        </nav>
+              <div className="timeline-row__body">
+                <strong>{primary?.albumName ?? '未命名相册'}</strong>
+                <span>{formatDate(primary?.mtimeMs ?? Date.now())} - {formatDate(last?.mtimeMs ?? Date.now())}</span>
+                <small>{row.images.length} 张照片</small>
+              </div>
+              <div className="timeline-row__thumbs">
+                {preview.map((img) => (
+                  <button key={img.path} type="button" onClick={() => onViewImage(img.path)}>
+                    <img src={toLocalMediaUrl(img.path)} alt={img.albumName} loading="lazy" decoding="async" draggable={false} />
+                  </button>
+                ))}
+              </div>
+              <div className="timeline-row__map">
+                <MapPin size={17} />
+              </div>
+              {primary && (
+                <button
+                  type="button"
+                  className={`timeline-row__delete${armedDeletePath === primary.path ? ' is-armed' : ''}`}
+                  title={armedDeletePath === primary.path ? '再次点击删除' : '删除照片'}
+                  disabled={deletingImagePath === primary.path}
+                  onClick={() => {
+                    if (armedDeletePath === primary.path) {
+                      setArmedDeletePath(null);
+                      onDeleteImage(primary);
+                      return;
+                    }
+                    setArmedDeletePath(primary.path);
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </article>
+          );
+        })}
+
+        {(isLoading || hasMore) && (
+          <div ref={sentinelRef} className="timeline-loader">
+            {isLoading ? '正在加载更多照片...' : '向下滚动继续加载'}
+          </div>
+        )}
       </div>
-    </div>
+    </section>
   );
 }

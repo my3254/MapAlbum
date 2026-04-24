@@ -1,4 +1,14 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Bell,
+  ChevronRight,
+  Minus,
+  Search,
+  Settings2,
+  Square,
+  UserRound,
+  X,
+} from 'lucide-react';
 import './App.css';
 import { AppNavigation, type AppView } from './components/AppNavigation';
 import { AlbumBoard, DashboardBoard, RecycleBoard, SettingsBoard, StatsBoard } from './components/BoardViews';
@@ -6,10 +16,19 @@ import { InspectorPanel } from './components/InspectorPanel';
 import { LanUploadPanel } from './components/LanUploadPanel';
 import { MapCanvas } from './components/MapCanvas';
 import { PhotoViewer } from './components/PhotoViewer';
+import { PlacesTimelineBoard } from './components/PlacesTimelineBoard';
 import { TimelineGallery } from './components/TimelineGallery';
 import { reverseGeocodeFromPhotoGps, wgs84ToGcj02 } from './shared/amap';
-import type { AlbumSummary, ImageMetadata, ImportedImageFile, LanServerState, LocationDraft, TimelineImageMetadata } from './shared/contracts';
+import type {
+  AlbumSummary,
+  ImageMetadata,
+  ImportedImageFile,
+  LanServerState,
+  LocationDraft,
+  TimelineImageMetadata,
+} from './shared/contracts';
 import { createLocationDraft } from './shared/location';
+import { toLocalMediaUrl } from './shared/media';
 
 const ROOT_FOLDER_STORAGE_KEY = 'mapalbum.root-folder';
 const EMPTY_LAN_STATE: LanServerState = {
@@ -21,6 +40,18 @@ const EMPTY_LAN_STATE: LanServerState = {
 
 const GPS_GROUP_PRECISION = 6;
 const TIMELINE_PAGE_SIZE = 120;
+
+const viewTitles: Record<AppView, string> = {
+  workbench: '工作台',
+  map: '地图',
+  places: '地点',
+  albums: '相册',
+  timeline: '时间线',
+  stats: '照片信息',
+  upload: '局域网上传',
+  recycle: '回收站',
+  settings: '设置',
+};
 
 function mergeUniquePaths(current: string[], next: string[]) {
   return Array.from(new Set([...current, ...next]));
@@ -69,6 +100,118 @@ function hasResolvedAddress(location: (LocationDraft | Pick<LocationDraft, 'prov
   return Boolean(location?.province || location?.city || location?.district || location?.township);
 }
 
+function TopChrome({
+  activeView,
+  onSettings,
+}: {
+  activeView: AppView;
+  onSettings: () => void;
+}) {
+  return (
+    <header className="top-chrome">
+      <label className="global-search">
+        <Search size={15} />
+        <input placeholder="搜索照片、地点、相册..." />
+        <kbd>Ctrl + K</kbd>
+      </label>
+      <div className="top-chrome__spacer" />
+      <button type="button" className="top-icon-button" title="通知">
+        <Bell size={16} />
+        <i />
+      </button>
+      <button type="button" className="avatar-button" title="账户">
+        <UserRound size={16} />
+      </button>
+      <button type="button" className="top-icon-button" title="设置" onClick={onSettings}>
+        <Settings2 size={16} />
+      </button>
+      <div className="window-controls" aria-hidden="true">
+        <span><Minus size={13} /></span>
+        <span><Square size={12} /></span>
+        <span><X size={13} /></span>
+      </div>
+      <strong className="top-chrome__title">{viewTitles[activeView]}</strong>
+    </header>
+  );
+}
+
+function MapAlbumTray({
+  albums,
+  selectedAlbumPath,
+  onOpenDetails,
+  onSelectAlbum,
+}: {
+  albums: AlbumSummary[];
+  selectedAlbumPath: string | null;
+  onOpenDetails: () => void;
+  onSelectAlbum: (relativePath: string) => void;
+}) {
+  const selectedAlbum = albums.find((album) => album.relativePath === selectedAlbumPath) ?? albums[0] ?? null;
+  const previews = selectedAlbum ? (selectedAlbum.previewPaths.length ? selectedAlbum.previewPaths : selectedAlbum.coverPath ? [selectedAlbum.coverPath] : []) : [];
+
+  return (
+    <div className="map-album-tray">
+      <div className="map-album-tray__head">
+        <span>{selectedAlbum ? selectedAlbum.displayName : '暂无地点相册'}</span>
+        <small>{selectedAlbum ? `${selectedAlbum.imageCount} 张照片` : '在地图上选点，或从本地导入照片'}</small>
+        <button type="button" disabled={!selectedAlbum} onClick={onOpenDetails}>
+          查看详情
+        </button>
+      </div>
+      <div className="map-album-tray__photos">
+        {previews.length > 0 ? (
+          previews.slice(0, 6).map((path) => (
+            <button key={path} type="button" onClick={() => selectedAlbum && onSelectAlbum(selectedAlbum.relativePath)}>
+              <img src={toLocalMediaUrl(path)} alt="" loading="lazy" decoding="async" draggable={false} />
+            </button>
+          ))
+        ) : (
+          Array.from({ length: 6 }).map((_, index) => <span key={index} className="photo-placeholder" />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmDialog({
+  album,
+  isDeleting,
+  onCancel,
+  onConfirm,
+}: {
+  album: AlbumSummary | null;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!album) {
+    return null;
+  }
+
+  return (
+    <div className="dialog-layer">
+      <section className="dialog dialog--confirm">
+        <button type="button" className="icon-button dialog__close" onClick={onCancel} title="关闭">
+          <X size={16} />
+        </button>
+        <div className="warning-sign">!</div>
+        <h2>确定要删除“{album.displayName}”相册吗？</h2>
+        <p>该相册包含 {album.imageCount} 张照片，删除后将无法恢复。</p>
+        <label className="check-row">
+          <input type="checkbox" />
+          <span>同时删除相册内的照片</span>
+        </label>
+        <footer className="dialog__actions">
+          <button type="button" className="button button--ghost" onClick={onCancel}>取消</button>
+          <button type="button" className="button button--danger" disabled={isDeleting} onClick={onConfirm}>
+            {isDeleting ? '删除中...' : '删除'}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 export default function App() {
   const [albums, setAlbums] = useState<AlbumSummary[]>([]);
   const [albumImages, setAlbumImages] = useState<ImageMetadata[]>([]);
@@ -83,8 +226,7 @@ export default function App() {
   const [hasLoadedRootFolder, setHasLoadedRootFolder] = useState(false);
   const [selectedAlbumPath, setSelectedAlbumPath] = useState<string | null>(null);
   const [stagedImages, setStagedImages] = useState<string[]>([]);
-  const [isLanPanelOpen, setIsLanPanelOpen] = useState(false);
-  const [activeView, setActiveView] = useState<AppView>('map');
+  const [activeView, setActiveView] = useState<AppView>('places');
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [viewerSource, setViewerSource] = useState<ImageMetadata[]>([]);
   const [allImages, setAllImages] = useState<TimelineImageMetadata[]>([]);
@@ -94,6 +236,8 @@ export default function App() {
   const [timelineOffset, setTimelineOffset] = useState(0);
   const [deletingImagePath, setDeletingImagePath] = useState<string | null>(null);
   const [deletingAlbumPath, setDeletingAlbumPath] = useState<string | null>(null);
+  const [pendingDeleteAlbumPath, setPendingDeleteAlbumPath] = useState<string | null>(null);
+  const [isAlbumDetailOpen, setIsAlbumDetailOpen] = useState(false);
   const hasPromptedForRootFolderRef = useRef(false);
   const isTimelineRequestingRef = useRef(false);
 
@@ -101,6 +245,13 @@ export default function App() {
     () => albums.find((album) => album.relativePath === selectedAlbumPath) ?? null,
     [albums, selectedAlbumPath],
   );
+
+  const pendingDeleteAlbum = useMemo(
+    () => albums.find((album) => album.relativePath === pendingDeleteAlbumPath) ?? null,
+    [albums, pendingDeleteAlbumPath],
+  );
+
+  const inspectorSelectedAlbum = isAlbumDetailOpen || stagedImages.length > 0 ? selectedAlbum : null;
 
   const lanQrUrl = useMemo(() => {
     if (!lanUploadState.url) {
@@ -111,6 +262,11 @@ export default function App() {
 
   useEffect(() => {
     async function initialize() {
+      if (!window.api) {
+        setHasLoadedRootFolder(true);
+        return;
+      }
+
       try {
         let currentRoot = await window.api.getRootFolder();
 
@@ -149,7 +305,7 @@ export default function App() {
     }
 
     hasPromptedForRootFolderRef.current = true;
-    setNotice('请在设置中选择相册根目录。');
+    setNotice('请先在设置中选择相册根目录。');
   }, [hasLoadedRootFolder, rootFolder]);
 
   useEffect(() => {
@@ -375,6 +531,11 @@ export default function App() {
   }, [lanUploadState.isRunning, rootFolder, draftLocation]);
 
   async function chooseRootFolder() {
+    if (!window.api) {
+      setNotice('请在桌面客户端中选择本地目录。');
+      return;
+    }
+
     const folder = await window.api.chooseRootFolder();
     if (!folder) {
       return;
@@ -390,6 +551,11 @@ export default function App() {
   }
 
   async function chooseImages() {
+    if (!window.api) {
+      setNotice('请在桌面客户端中导入本地照片。');
+      return;
+    }
+
     const paths = await window.api.chooseImages();
     if (!paths?.length) {
       return;
@@ -499,7 +665,7 @@ export default function App() {
     }
   }
 
-  async function deleteAlbum(relativePath: string) {
+  async function performDeleteAlbum(relativePath: string) {
     if (!rootFolder) {
       return;
     }
@@ -514,6 +680,8 @@ export default function App() {
       if (selectedAlbumPath === relativePath) {
         setSelectedAlbumPath(null);
       }
+      setPendingDeleteAlbumPath(null);
+      setIsAlbumDetailOpen(false);
       setReloadTick((value) => value + 1);
       setNotice(`已删除地点 ${targetAlbum?.displayName ?? relativePath}。`);
     } catch (error) {
@@ -525,6 +693,11 @@ export default function App() {
   }
 
   async function startLanUpload() {
+    if (!window.api) {
+      setNotice('请在桌面客户端中启动局域网上传。');
+      return;
+    }
+
     try {
       const nextState = await window.api.startLanUpload();
       setLanUploadState(nextState);
@@ -536,6 +709,11 @@ export default function App() {
   }
 
   async function stopLanUpload() {
+    if (!window.api) {
+      setNotice('请在桌面客户端中停止局域网上传。');
+      return;
+    }
+
     try {
       const nextState = await window.api.stopLanUpload();
       setLanUploadState(nextState);
@@ -554,13 +732,18 @@ export default function App() {
 
     setSelectedAlbumPath(null);
     setDraftLocation(location);
+    setIsAlbumDetailOpen(false);
   }
 
   function handleSelectAlbum(relativePath: string) {
     setDraftLocation(null);
     setSelectedAlbumPath(relativePath);
-    setIsLanPanelOpen(false);
     setActiveView('map');
+  }
+
+  function handleSelectAlbumInPlaces(relativePath: string) {
+    setDraftLocation(null);
+    setSelectedAlbumPath(relativePath);
   }
 
   function handleViewAlbumImage(imagePath: string) {
@@ -615,17 +798,28 @@ export default function App() {
 
   function handleViewChange(view: AppView) {
     setActiveView(view);
-    setIsLanPanelOpen(view === 'upload');
+    setIsAlbumDetailOpen(false);
   }
 
   function openMapView() {
     setActiveView('map');
-    setIsLanPanelOpen(false);
   }
 
   function openUploadPanel() {
     setActiveView('upload');
-    setIsLanPanelOpen(true);
+  }
+
+  function openCreateAlbumDialog() {
+    setActiveView('map');
+    setSelectedAlbumPath(null);
+    setIsAlbumDetailOpen(false);
+    void chooseImages();
+    setNotice('请选择照片后，在地图上点击地点创建相册。');
+  }
+
+  function requestDeleteAlbum(relativePath: string) {
+    setPendingDeleteAlbumPath(relativePath);
+    return Promise.resolve();
   }
 
   const boardProps = {
@@ -636,14 +830,13 @@ export default function App() {
     selectedAlbumPath,
     onChooseImages: chooseImages,
     onChooseRootFolder: chooseRootFolder,
-    onDeleteAlbum: deleteAlbum,
+    onDeleteAlbum: requestDeleteAlbum,
+    onOpenCreateAlbum: openCreateAlbumDialog,
     onOpenMap: openMapView,
     onOpenUpload: openUploadPanel,
     onRefresh: refreshAlbums,
     onSelectAlbum: handleSelectAlbum,
   };
-
-  const isMapSurface = activeView === 'map' || activeView === 'upload';
 
   return (
     <div className="app-shell">
@@ -653,80 +846,40 @@ export default function App() {
         activeView={activeView}
         albumCount={albums.length}
         isLanRunning={lanUploadState.isRunning}
+        rootFolder={rootFolder}
         onViewChange={handleViewChange}
       />
 
-      <LanUploadPanel
-        isOpen={isLanPanelOpen || activeView === 'upload'}
-        lanQrUrl={lanQrUrl}
-        lanUploadState={lanUploadState}
-        onClose={() => {
-          setIsLanPanelOpen(false);
-          if (activeView === 'upload') {
-            setActiveView('map');
-          }
-        }}
-        onStartLanUpload={startLanUpload}
-        onStopLanUpload={stopLanUpload}
-      />
-
       <main className={`workspace workspace--${activeView}`}>
-        {isMapSurface && (
-          <section className="map-workspace">
-            <div className="workspace__map">
-              <MapCanvas
-                albums={albums}
-                draftLocation={draftLocation}
-                selectedAlbumPath={selectedAlbumPath}
-                onLocationPicked={handleLocationPicked}
-                onMapError={setNotice}
-                onSelectAlbum={handleSelectAlbum}
-              />
-
-              <div className="view-dock" role="tablist" aria-label="视图切换">
-                <button type="button" className="view-dock__item view-dock__item--active" onClick={openMapView}>
-                  地图
-                </button>
-                <button type="button" className="view-dock__item" onClick={() => handleViewChange('albums')}>
-                  相册
-                </button>
-                <button type="button" className="view-dock__item" onClick={() => handleViewChange('timeline')}>
-                  时间线
-                </button>
-                <button type="button" className="view-dock__item" onClick={() => handleViewChange('stats')}>
-                  数据
-                </button>
-              </div>
-            </div>
-
-            <InspectorPanel
-              albumImages={albumImages}
-              deletingImagePath={deletingImagePath}
-              draftLocation={draftLocation}
-              isAlbumImagesLoading={isAlbumImagesLoading}
-              isSaving={isSaving}
-              selectedAlbum={selectedAlbum}
-              stagedImages={stagedImages}
-              onAddImagesToAlbum={addImagesToAlbum}
-              onChooseImages={chooseImages}
-              onCloseDraft={() => setDraftLocation(null)}
-              onCloseSelectedAlbum={() => setSelectedAlbumPath(null)}
-              onCreateAlbum={createAlbum}
-              onDeleteImage={deleteAlbumImage}
-              onRemoveStagedImage={removeStagedImage}
-              onSetCover={setAlbumCover}
-              onSetNote={setAlbumNote}
-              onViewImage={handleViewAlbumImage}
-            />
-          </section>
-        )}
+        {activeView !== 'places' && <TopChrome activeView={activeView} onSettings={() => setActiveView('settings')} />}
 
         {activeView === 'workbench' && <DashboardBoard {...boardProps} />}
-        {activeView === 'places' && <AlbumBoard {...boardProps} mode="places" />}
+        {activeView === 'places' && (
+          <PlacesTimelineBoard
+            albums={albums}
+            draftLocation={draftLocation}
+            isLoading={isAlbumsLoading}
+            rootFolder={rootFolder}
+            selectedAlbumPath={selectedAlbumPath}
+            onChooseRootFolder={chooseRootFolder}
+            onLocationPicked={handleLocationPicked}
+            onMapError={setNotice}
+            onOpenDetails={() => setIsAlbumDetailOpen(true)}
+            onSelectAlbum={handleSelectAlbumInPlaces}
+          />
+        )}
         {activeView === 'albums' && <AlbumBoard {...boardProps} mode="albums" />}
         {activeView === 'stats' && <StatsBoard albums={albums} isLoading={isAlbumsLoading} />}
         {activeView === 'recycle' && <RecycleBoard rootFolder={rootFolder} />}
         {activeView === 'settings' && <SettingsBoard rootFolder={rootFolder} onChooseRootFolder={chooseRootFolder} />}
+        {activeView === 'upload' && (
+          <LanUploadPanel
+            lanQrUrl={lanQrUrl}
+            lanUploadState={lanUploadState}
+            onStartLanUpload={startLanUpload}
+            onStopLanUpload={stopLanUpload}
+          />
+        )}
         {activeView === 'timeline' && (
           <TimelineGallery
             deletingImagePath={deletingImagePath}
@@ -744,7 +897,64 @@ export default function App() {
             onClose={openMapView}
           />
         )}
+        {activeView === 'map' && (
+          <section className="map-page">
+            <MapCanvas
+              albums={albums}
+              draftLocation={draftLocation}
+              selectedAlbumPath={selectedAlbumPath}
+              onLocationPicked={handleLocationPicked}
+              onMapError={setNotice}
+              onSelectAlbum={handleSelectAlbum}
+            />
+            <MapAlbumTray
+              albums={albums}
+              selectedAlbumPath={selectedAlbumPath}
+              onOpenDetails={() => setIsAlbumDetailOpen(true)}
+              onSelectAlbum={handleSelectAlbum}
+            />
+          </section>
+        )}
       </main>
+
+      <InspectorPanel
+        albumImages={albumImages}
+        deletingImagePath={deletingImagePath}
+        draftLocation={draftLocation}
+        isAlbumImagesLoading={isAlbumImagesLoading}
+        isSaving={isSaving}
+        selectedAlbum={inspectorSelectedAlbum}
+        stagedImages={stagedImages}
+        onAddImagesToAlbum={addImagesToAlbum}
+        onChooseImages={chooseImages}
+        onCloseDraft={() => {
+          setDraftLocation(null);
+          setStagedImages([]);
+        }}
+        onCloseSelectedAlbum={() => {
+          setIsAlbumDetailOpen(false);
+          if (stagedImages.length > 0) {
+            setStagedImages([]);
+          }
+        }}
+        onCreateAlbum={createAlbum}
+        onDeleteImage={deleteAlbumImage}
+        onRemoveStagedImage={removeStagedImage}
+        onSetCover={setAlbumCover}
+        onSetNote={setAlbumNote}
+        onViewImage={handleViewAlbumImage}
+      />
+
+      <DeleteConfirmDialog
+        album={pendingDeleteAlbum}
+        isDeleting={Boolean(deletingAlbumPath)}
+        onCancel={() => setPendingDeleteAlbumPath(null)}
+        onConfirm={() => {
+          if (pendingDeleteAlbumPath) {
+            void performDeleteAlbum(pendingDeleteAlbumPath);
+          }
+        }}
+      />
 
       {viewerIndex !== null && (
         <PhotoViewer
@@ -760,9 +970,9 @@ export default function App() {
       {!rootFolder && hasLoadedRootFolder && (
         <button type="button" className="root-folder-chip" onClick={chooseRootFolder}>
           选择相册根目录
+          <ChevronRight size={15} />
         </button>
       )}
     </div>
   );
 }
-

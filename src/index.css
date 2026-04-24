@@ -1,23 +1,12 @@
 :root {
   color-scheme: dark;
   --bg: #061018;
-  --bg-2: #0a1620;
-  --panel: rgba(12, 24, 34, 0.86);
-  --panel-strong: rgba(14, 28, 39, 0.96);
-  --panel-soft: rgba(255, 255, 255, 0.045);
-  --line: rgba(158, 181, 198, 0.18);
-  --line-strong: rgba(158, 181, 198, 0.32);
+  --panel: #0a1721;
   --text: #e9f3f7;
   --muted: #8ea0aa;
-  --faint: #5f747f;
   --accent: #17c9bd;
   --accent-2: #31f0df;
-  --danger: #e64b4b;
-  --warning: #dca13c;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+  --danger: #b93b3b;
   --font: Inter, "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
@@ -35,10 +24,7 @@ body,
 
 body {
   overflow: hidden;
-  background:
-    radial-gradient(circle at 18% 12%, rgba(23, 201, 189, 0.12), transparent 26%),
-    radial-gradient(circle at 82% 20%, rgba(220, 161, 60, 0.08), transparent 28%),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
@@ -47,7 +33,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -57,7 +44,7 @@ button {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.58;
+  opacity: 0.55;
 }
 
 img {
@@ -69,6 +56,7 @@ h1,
 h2,
 h3,
 p,
+figure,
 dl,
 dd {
   margin: 0;
@@ -81,7 +69,7 @@ dd {
 
 ::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(142, 160, 170, 0.26);
+  background: rgba(142, 160, 170, 0.24);
 }
 
 ::-webkit-scrollbar-track {
