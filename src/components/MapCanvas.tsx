@@ -318,8 +318,10 @@ function MapCanvasInner({
         const map = new AMap.Map(mapElementRef.current, {
           zoom: 4.8,
           center: [104.195397, 35.86166],
-          mapStyle: 'amap://styles/grey',
+          mapStyle: 'amap://styles/dark',
           viewMode: '2D',
+          features: ['bg', 'road', 'point'],
+          showLabel: true,
         });
         setVisibleLevel(getVisibleLevel(map.getZoom()));
 
@@ -510,8 +512,30 @@ function MapCanvasInner({
     mapRef.current.setZoom(12.5);
   }, [draftLocation, isReady]);
 
+  function adjustZoom(delta: number) {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+
+    map.setZoom(map.getZoom() + delta);
+  }
+
+  function resetChinaView() {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+
+    map.setZoomAndCenter(4.8, [104.195397, 35.86166], true);
+  }
+
   return (
-    <>
+    <div className="map-surface">
+      <div ref={mapElementRef} className="map-canvas" />
+      <div className="map-starfield" aria-hidden="true" />
+      <div className="map-vignette" aria-hidden="true" />
+
       <div className="map-search-panel">
         <div className="map-search-bar">
           <input
@@ -548,8 +572,12 @@ function MapCanvasInner({
         )}
       </div>
 
-      <div ref={mapElementRef} className="map-canvas" />
-    </>
+      <div className="map-controls" aria-label="地图控制">
+        <button type="button" onClick={resetChinaView} title="回到全国视图">⌖</button>
+        <button type="button" onClick={() => adjustZoom(1)} title="放大">+</button>
+        <button type="button" onClick={() => adjustZoom(-1)} title="缩小">−</button>
+      </div>
+    </div>
   );
 }
 

@@ -1,10 +1,10 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, Menu, Settings, Smartphone } from 'lucide-react';
 import './App.css';
+import { AppNavigation, type AppView } from './components/AppNavigation';
+import { AlbumBoard, DashboardBoard, RecycleBoard, SettingsBoard, StatsBoard } from './components/BoardViews';
 import { InspectorPanel } from './components/InspectorPanel';
 import { LanUploadPanel } from './components/LanUploadPanel';
 import { MapCanvas } from './components/MapCanvas';
-import { Sidebar } from './components/Sidebar';
 import { PhotoViewer } from './components/PhotoViewer';
 import { TimelineGallery } from './components/TimelineGallery';
 import { reverseGeocodeFromPhotoGps, wgs84ToGcj02 } from './shared/amap';
@@ -83,9 +83,8 @@ export default function App() {
   const [hasLoadedRootFolder, setHasLoadedRootFolder] = useState(false);
   const [selectedAlbumPath, setSelectedAlbumPath] = useState<string | null>(null);
   const [stagedImages, setStagedImages] = useState<string[]>([]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLanPanelOpen, setIsLanPanelOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'map' | 'timeline'>('map');
+  const [activeView, setActiveView] = useState<AppView>('map');
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [viewerSource, setViewerSource] = useState<ImageMetadata[]>([]);
   const [allImages, setAllImages] = useState<TimelineImageMetadata[]>([]);
@@ -150,26 +149,7 @@ export default function App() {
     }
 
     hasPromptedForRootFolderRef.current = true;
-
-    async function ensureRootFolder() {
-      let folderInProgress = null;
-      while (!folderInProgress) {
-        folderInProgress = await window.api.chooseRootFolder();
-        if (!folderInProgress) {
-          setNotice('MapAlbum 需要先选择一个根目录才能运行，请选择用于存放相册的文件夹。');
-        }
-      }
-
-      await window.api.setRootFolder(folderInProgress);
-      setRootFolder(folderInProgress);
-      setDraftLocation(null);
-      setSelectedAlbumPath(null);
-      setStagedImages([]);
-      setReloadTick((value) => value + 1);
-      setNotice('根目录设置成功。');
-    }
-
-    void ensureRootFolder();
+    setNotice('请在设置中选择相册根目录。');
   }, [hasLoadedRootFolder, rootFolder]);
 
   useEffect(() => {
@@ -253,7 +233,7 @@ export default function App() {
   }, [rootFolder, selectedAlbumPath]);
 
   useEffect(() => {
-    if (!rootFolder || viewMode !== 'timeline') {
+    if (!rootFolder || activeView !== 'timeline') {
       return;
     }
 
@@ -294,7 +274,7 @@ export default function App() {
       cancelled = true;
       isTimelineRequestingRef.current = false;
     };
-  }, [rootFolder, viewMode, reloadTick, albums.length]);
+  }, [rootFolder, activeView, reloadTick, albums.length]);
 
   useEffect(() => {
     if (!notice) {
@@ -579,7 +559,8 @@ export default function App() {
   function handleSelectAlbum(relativePath: string) {
     setDraftLocation(null);
     setSelectedAlbumPath(relativePath);
-    setViewMode('map');
+    setIsLanPanelOpen(false);
+    setActiveView('map');
   }
 
   function handleViewAlbumImage(imagePath: string) {
@@ -599,7 +580,7 @@ export default function App() {
   }
 
   async function handleLoadMoreTimelineImages() {
-    if (!rootFolder || viewMode !== 'timeline' || !timelineHasMore || isTimelineRequestingRef.current) {
+    if (!rootFolder || activeView !== 'timeline' || !timelineHasMore || isTimelineRequestingRef.current) {
       return;
     }
 
@@ -626,104 +607,144 @@ export default function App() {
     setStagedImages((current) => current.filter((item) => item !== imagePath));
   }
 
+  function refreshAlbums() {
+    if (rootFolder) {
+      setReloadTick((value) => value + 1);
+    }
+  }
+
+  function handleViewChange(view: AppView) {
+    setActiveView(view);
+    setIsLanPanelOpen(view === 'upload');
+  }
+
+  function openMapView() {
+    setActiveView('map');
+    setIsLanPanelOpen(false);
+  }
+
+  function openUploadPanel() {
+    setActiveView('upload');
+    setIsLanPanelOpen(true);
+  }
+
+  const boardProps = {
+    albums,
+    deletingAlbumPath,
+    isLoading: isAlbumsLoading,
+    rootFolder,
+    selectedAlbumPath,
+    onChooseImages: chooseImages,
+    onChooseRootFolder: chooseRootFolder,
+    onDeleteAlbum: deleteAlbum,
+    onOpenMap: openMapView,
+    onOpenUpload: openUploadPanel,
+    onRefresh: refreshAlbums,
+    onSelectAlbum: handleSelectAlbum,
+  };
+
+  const isMapSurface = activeView === 'map' || activeView === 'upload';
+
   return (
     <div className="app-shell">
       <div className="titlebar-drag-region" />
-      <div className="left-toolbar">
-        <button className="toolbar-button" onClick={() => { setIsSidebarOpen((value) => !value); setIsLanPanelOpen(false); }} title="切换侧边栏">
-          <Menu size={20} />
-        </button>
-        <button className="toolbar-button" onClick={() => { setIsLanPanelOpen((value) => !value); setIsSidebarOpen(false); }} title="手机上传">
-          <Smartphone size={20} />
-        </button>
-        <button
-          className={`toolbar-button${viewMode === 'timeline' ? ' toolbar-button--active' : ''}`}
-          onClick={() => setViewMode((curr) => (curr === 'timeline' ? 'map' : 'timeline'))}
-          title="时间线视图"
-        >
-          <Calendar size={20} />
-        </button>
-        <button className="toolbar-button" onClick={chooseRootFolder} title="选择相册根目录">
-          <Settings size={20} />
-        </button>
-      </div>
 
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        albums={albums}
-        deletingAlbumPath={deletingAlbumPath}
-        isLoading={isAlbumsLoading}
-        rootFolder={rootFolder}
-        selectedAlbumPath={selectedAlbumPath}
-        onRefresh={() => {
-          if (rootFolder) {
-            setReloadTick((value) => value + 1);
-          }
-        }}
-        onDeleteAlbum={deleteAlbum}
-        onSelectAlbum={handleSelectAlbum}
+      <AppNavigation
+        activeView={activeView}
+        albumCount={albums.length}
+        isLanRunning={lanUploadState.isRunning}
+        onViewChange={handleViewChange}
       />
 
       <LanUploadPanel
-        isOpen={isLanPanelOpen}
+        isOpen={isLanPanelOpen || activeView === 'upload'}
         lanQrUrl={lanQrUrl}
         lanUploadState={lanUploadState}
-        onClose={() => setIsLanPanelOpen(false)}
+        onClose={() => {
+          setIsLanPanelOpen(false);
+          if (activeView === 'upload') {
+            setActiveView('map');
+          }
+        }}
         onStartLanUpload={startLanUpload}
         onStopLanUpload={stopLanUpload}
       />
 
-      <main className="workspace">
-        <div className="workspace__map">
-          <MapCanvas
-            albums={albums}
-            draftLocation={draftLocation}
-            selectedAlbumPath={selectedAlbumPath}
-            onLocationPicked={handleLocationPicked}
-            onMapError={setNotice}
-            onSelectAlbum={handleSelectAlbum}
+      <main className={`workspace workspace--${activeView}`}>
+        {isMapSurface && (
+          <section className="map-workspace">
+            <div className="workspace__map">
+              <MapCanvas
+                albums={albums}
+                draftLocation={draftLocation}
+                selectedAlbumPath={selectedAlbumPath}
+                onLocationPicked={handleLocationPicked}
+                onMapError={setNotice}
+                onSelectAlbum={handleSelectAlbum}
+              />
+
+              <div className="view-dock" role="tablist" aria-label="视图切换">
+                <button type="button" className="view-dock__item view-dock__item--active" onClick={openMapView}>
+                  地图
+                </button>
+                <button type="button" className="view-dock__item" onClick={() => handleViewChange('albums')}>
+                  相册
+                </button>
+                <button type="button" className="view-dock__item" onClick={() => handleViewChange('timeline')}>
+                  时间线
+                </button>
+                <button type="button" className="view-dock__item" onClick={() => handleViewChange('stats')}>
+                  数据
+                </button>
+              </div>
+            </div>
+
+            <InspectorPanel
+              albumImages={albumImages}
+              deletingImagePath={deletingImagePath}
+              draftLocation={draftLocation}
+              isAlbumImagesLoading={isAlbumImagesLoading}
+              isSaving={isSaving}
+              selectedAlbum={selectedAlbum}
+              stagedImages={stagedImages}
+              onAddImagesToAlbum={addImagesToAlbum}
+              onChooseImages={chooseImages}
+              onCloseDraft={() => setDraftLocation(null)}
+              onCloseSelectedAlbum={() => setSelectedAlbumPath(null)}
+              onCreateAlbum={createAlbum}
+              onDeleteImage={deleteAlbumImage}
+              onRemoveStagedImage={removeStagedImage}
+              onSetCover={setAlbumCover}
+              onSetNote={setAlbumNote}
+              onViewImage={handleViewAlbumImage}
+            />
+          </section>
+        )}
+
+        {activeView === 'workbench' && <DashboardBoard {...boardProps} />}
+        {activeView === 'places' && <AlbumBoard {...boardProps} mode="places" />}
+        {activeView === 'albums' && <AlbumBoard {...boardProps} mode="albums" />}
+        {activeView === 'stats' && <StatsBoard albums={albums} isLoading={isAlbumsLoading} />}
+        {activeView === 'recycle' && <RecycleBoard rootFolder={rootFolder} />}
+        {activeView === 'settings' && <SettingsBoard rootFolder={rootFolder} onChooseRootFolder={chooseRootFolder} />}
+        {activeView === 'timeline' && (
+          <TimelineGallery
+            deletingImagePath={deletingImagePath}
+            images={allImages}
+            hasMore={timelineHasMore}
+            isLoading={isTimelineLoading}
+            total={timelineTotal}
+            onLoadMore={() => {
+              void handleLoadMoreTimelineImages();
+            }}
+            onDeleteImage={(image) => {
+              void deleteAlbumImage(image.albumPath, image.path);
+            }}
+            onViewImage={handleViewTimelineImage}
+            onClose={openMapView}
           />
-        </div>
+        )}
       </main>
-
-      <InspectorPanel
-        albumImages={albumImages}
-        deletingImagePath={deletingImagePath}
-        draftLocation={draftLocation}
-        isAlbumImagesLoading={isAlbumImagesLoading}
-        isSaving={isSaving}
-        selectedAlbum={selectedAlbum}
-        stagedImages={stagedImages}
-        onAddImagesToAlbum={addImagesToAlbum}
-        onChooseImages={chooseImages}
-        onCloseDraft={() => setDraftLocation(null)}
-        onCloseSelectedAlbum={() => setSelectedAlbumPath(null)}
-        onCreateAlbum={createAlbum}
-        onDeleteImage={deleteAlbumImage}
-        onRemoveStagedImage={removeStagedImage}
-        onSetCover={setAlbumCover}
-        onSetNote={setAlbumNote}
-        onViewImage={handleViewAlbumImage}
-      />
-
-      {viewMode === 'timeline' && (
-        <TimelineGallery
-          deletingImagePath={deletingImagePath}
-          images={allImages}
-          hasMore={timelineHasMore}
-          isLoading={isTimelineLoading}
-          total={timelineTotal}
-          onLoadMore={() => {
-            void handleLoadMoreTimelineImages();
-          }}
-          onDeleteImage={(image) => {
-            void deleteAlbumImage(image.albumPath, image.path);
-          }}
-          onViewImage={handleViewTimelineImage}
-          onClose={() => setViewMode('map')}
-        />
-      )}
 
       {viewerIndex !== null && (
         <PhotoViewer
@@ -735,23 +756,11 @@ export default function App() {
       )}
 
       {notice && <div className="notice-bar">{notice}</div>}
-      
+
       {!rootFolder && hasLoadedRootFolder && (
-        <div className="setup-overlay">
-          <div className="setup-card">
-            <div className="setup-card__brand">
-              <div className="setup-card__eyebrow">Welcome To</div>
-              <h1>MapAlbum</h1>
-            </div>
-            <p>
-              请先选择一个根目录来存放和管理您的照片相册。<br />
-              MapAlbum 将基于此目录生成地理位置归档。
-            </p>
-            <button className="button button--primary" onClick={chooseRootFolder}>
-              立即选择根目录
-            </button>
-          </div>
-        </div>
+        <button type="button" className="root-folder-chip" onClick={chooseRootFolder}>
+          选择相册根目录
+        </button>
       )}
     </div>
   );

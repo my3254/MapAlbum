@@ -1,5 +1,17 @@
-import { memo, useEffect, useMemo, useState } from 'react';
-import { FileText, Image as ImageIcon, MapPin, Plus, Star, Trash2, Upload, X } from 'lucide-react';
+import { memo, useEffect, useState } from 'react';
+import {
+  ArrowLeft,
+  Clock,
+  FileText,
+  Image as ImageIcon,
+  MapPin,
+  Pencil,
+  Plus,
+  Star,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import type { AlbumSummary, ImageMetadata, LocationDraft } from '../shared/contracts';
 import { toLocalMediaUrl } from '../shared/media';
 
@@ -27,6 +39,25 @@ function formatCoordinates(lng: number, lat: number) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
+function formatDateTime(value: string | number) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '未知时间';
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function getFileName(path: string) {
+  return path.split(/[\\/]/).pop() || path;
+}
+
 function InspectorPanelInner({
   albumImages,
   deletingImagePath,
@@ -47,31 +78,18 @@ function InspectorPanelInner({
   onViewImage,
 }: InspectorPanelProps) {
   const [noteDraft, setNoteDraft] = useState('');
+  const [noteIdentity, setNoteIdentity] = useState('');
   const [isNoteEditing, setIsNoteEditing] = useState(false);
   const [isNoteSaving, setIsNoteSaving] = useState(false);
   const [armedDeletePath, setArmedDeletePath] = useState<string | null>(null);
 
-  const title = useMemo(() => {
-    if (draftLocation) {
-      return draftLocation.displayName;
-    }
-
-    if (selectedAlbum) {
-      return selectedAlbum.displayName;
-    }
-
-    if (stagedImages.length > 0) {
-      return '待处理照片';
-    }
-
-    return '等待操作';
-  }, [draftLocation, selectedAlbum, stagedImages.length]);
-
-  useEffect(() => {
+  const currentNoteIdentity = selectedAlbum ? `${selectedAlbum.relativePath}\n${selectedAlbum.note ?? ''}` : '';
+  if (currentNoteIdentity !== noteIdentity) {
+    setNoteIdentity(currentNoteIdentity);
     setNoteDraft(selectedAlbum?.note ?? '');
     setIsNoteEditing(false);
     setIsNoteSaving(false);
-  }, [selectedAlbum?.relativePath, selectedAlbum?.note]);
+  }
 
   useEffect(() => {
     if (!armedDeletePath) {
@@ -81,6 +99,21 @@ function InspectorPanelInner({
     const timer = window.setTimeout(() => setArmedDeletePath(null), 2200);
     return () => window.clearTimeout(timer);
   }, [armedDeletePath]);
+
+  const orderedAlbumImages = selectedAlbum?.coverPath
+    ? [...albumImages].sort((left, right) => {
+        if (left.path === selectedAlbum.coverPath) {
+          return -1;
+        }
+        if (right.path === selectedAlbum.coverPath) {
+          return 1;
+        }
+        return 0;
+      })
+    : albumImages;
+
+  const primaryImage = selectedAlbum?.coverPath ?? orderedAlbumImages[0]?.path ?? selectedAlbum?.previewPaths[0] ?? null;
+  const isPanelOpen = Boolean(draftLocation || selectedAlbum || stagedImages.length > 0);
 
   async function handleSubmit() {
     if (stagedImages.length === 0 || isSaving) {
@@ -111,229 +144,241 @@ function InspectorPanelInner({
     }
   }
 
-  const isPanelOpen = Boolean(draftLocation || selectedAlbum || stagedImages.length > 0);
-  const orderedAlbumImages = useMemo(() => {
-    if (!selectedAlbum?.coverPath) {
-      return albumImages;
-    }
-
-    return [...albumImages].sort((left, right) => {
-      if (left.path === selectedAlbum.coverPath) {
-        return -1;
-      }
-      if (right.path === selectedAlbum.coverPath) {
-        return 1;
-      }
-      return 0;
-    });
-  }, [albumImages, selectedAlbum?.coverPath]);
-
-  return (
-    <aside className={`inspector${isPanelOpen ? ' inspector--open' : ''}`}>
-      <div className="inspector__header">
-        <div>
-          <p className="sidebar__eyebrow">
-            {draftLocation
-              ? '新建地点'
-              : selectedAlbum
-                ? '相册详情'
-                : stagedImages.length > 0
-                  ? '待导入'
-                  : '工作区'}
-          </p>
-          <h2>{title}</h2>
+  if (!isPanelOpen) {
+    return (
+      <aside className="inspector inspector--idle">
+        <div className="inspector-empty">
+          <MapPin size={22} />
+          <strong>选择地点</strong>
+          <span>地图标记或相册卡片会在这里打开详情。</span>
         </div>
-        {(draftLocation || selectedAlbum) && (
-          <button
-            className="icon-button"
-            onClick={draftLocation ? onCloseDraft : onCloseSelectedAlbum}
-            title="关闭"
-          >
-            <X size={18} />
+      </aside>
+    );
+  }
+
+  if (selectedAlbum) {
+    return (
+      <aside className="inspector inspector--open">
+        <header className="inspector-topbar">
+          <button type="button" className="icon-button" onClick={onCloseSelectedAlbum} title="返回地图">
+            <ArrowLeft size={18} />
           </button>
-        )}
-      </div>
+          <strong>{selectedAlbum.displayName}</strong>
+          <button type="button" className="icon-button" onClick={() => void onChooseImages()} title="追加图片">
+            <Plus size={18} />
+          </button>
+        </header>
 
-      {!draftLocation && !selectedAlbum && stagedImages.length === 0 && (
-        <div className="placeholder-block placeholder-block--large">
-          <p>可以在地图上手动选点，也可以先用左侧的手机上传功能接收照片。</p>
-          <p>如果上传的照片带有 EXIF GPS 信息，MapAlbum 会自动尝试定位。</p>
-        </div>
-      )}
+        <div className="inspector-scroll">
+          <button
+            type="button"
+            className="detail-hero"
+            onClick={() => {
+              if (primaryImage) {
+                onViewImage(primaryImage);
+              }
+            }}
+          >
+            {primaryImage ? (
+              <img src={toLocalMediaUrl(primaryImage)} alt={selectedAlbum.displayName} draggable={false} />
+            ) : (
+              <span>
+                <ImageIcon size={28} />
+              </span>
+            )}
+          </button>
 
-      {(draftLocation || selectedAlbum || stagedImages.length > 0) && (
-        <div className={`inspector__content${selectedAlbum ? ' inspector__content--album' : ''}`}>
-          {(draftLocation || selectedAlbum) && (
-            <section className="inspector__section">
-              <div className="inspector__tag">
-                <MapPin size={14} />
-                <span>{formatCoordinates((draftLocation ?? selectedAlbum)!.lng, (draftLocation ?? selectedAlbum)!.lat)}</span>
-              </div>
-              <p className="inspector__path">{(draftLocation ?? selectedAlbum)!.relativePath}</p>
-              <p className="inspector__hint">
-                {draftLocation
-                  ? '这个地点草稿来自地图选点或照片 GPS，已经可以直接创建新相册。'
-                  : `当前相册共有 ${selectedAlbum?.imageCount ?? 0} 张照片，你可以继续从本地或手机追加图片。`}
-              </p>
-            </section>
-          )}
+          <div className="thumb-strip">
+            {isAlbumImagesLoading && <span className="thumb-strip__loading">加载中...</span>}
+            {!isAlbumImagesLoading && orderedAlbumImages.slice(0, 6).map((entry) => {
+              const imageName = getFileName(entry.path);
+              const isCover = selectedAlbum.coverPath === entry.path;
+              const isDeleteArmed = armedDeletePath === entry.path;
+              const isDeleting = deletingImagePath === entry.path;
 
-          {selectedAlbum && (
-            <section className="inspector__section">
-              <div className="inspector__section-title">
-                <h3>地点留言</h3>
-                {!isNoteEditing ? (
-                  <button className="button button--ghost" onClick={() => setIsNoteEditing(true)}>
-                    <span>{selectedAlbum.note ? '修改留言' : '添加留言'}</span>
+              return (
+                <figure key={entry.path} className={`detail-thumb${isCover ? ' detail-thumb--cover' : ''}`}>
+                  <button type="button" onClick={() => onViewImage(entry.path)}>
+                    <img src={toLocalMediaUrl(entry.path)} alt={imageName} loading="lazy" decoding="async" draggable={false} />
                   </button>
-                ) : (
-                  <div className="inspector__note-actions">
-                    <button className="button button--ghost" onClick={() => { setNoteDraft(selectedAlbum.note ?? ''); setIsNoteEditing(false); }}>
-                      <span>取消</span>
-                    </button>
-                    <button className="button button--primary" disabled={isNoteSaving} onClick={handleSaveNote}>
-                      <span>{isNoteSaving ? '保存中...' : '保存留言'}</span>
+                  <div className="detail-thumb__actions">
+                    {!isCover && (
+                      <button type="button" title="设为封面" onClick={() => void onSetCover(selectedAlbum, imageName)}>
+                        <Star size={13} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      title={isDeleteArmed ? '再次点击删除' : '删除照片'}
+                      disabled={isDeleting}
+                      className={isDeleteArmed ? 'is-armed' : ''}
+                      onClick={() => {
+                        if (isDeleteArmed) {
+                          setArmedDeletePath(null);
+                          void onDeleteImage(selectedAlbum.relativePath, entry.path);
+                          return;
+                        }
+                        setArmedDeletePath(entry.path);
+                      }}
+                    >
+                      <Trash2 size={13} />
                     </button>
                   </div>
-                )}
+                </figure>
+              );
+            })}
+            {orderedAlbumImages.length > 6 && <button type="button" className="thumb-more">+{orderedAlbumImages.length - 6}</button>}
+          </div>
+
+          <section className="detail-card">
+            <h3>地点信息</h3>
+            <dl className="detail-list">
+              <div>
+                <dt>
+                  <MapPin size={15} />
+                  坐标
+                </dt>
+                <dd>{formatCoordinates(selectedAlbum.lng, selectedAlbum.lat)}</dd>
               </div>
-
-              <div className="inspector__note-card">
-                <div className="inspector__note-icon">
-                  <FileText size={16} />
-                </div>
-                {isNoteEditing ? (
-                  <textarea
-                    className="inspector__note-input"
-                    value={noteDraft}
-                    onChange={(event) => setNoteDraft(event.target.value)}
-                    placeholder="给这个地点写点备注、回忆或者提醒..."
-                    rows={4}
-                  />
-                ) : (
-                  <p className={`inspector__note-text${selectedAlbum.note ? '' : ' inspector__note-text--placeholder'}`}>
-                    {selectedAlbum.note || '还没有留言，添加后会在地图气泡悬停时显示预览。'}
-                  </p>
-                )}
+              <div>
+                <dt>
+                  <ImageIcon size={15} />
+                  照片
+                </dt>
+                <dd>{selectedAlbum.imageCount} 张</dd>
               </div>
-            </section>
-          )}
+            </dl>
+          </section>
 
-          {!draftLocation && !selectedAlbum && stagedImages.length > 0 && (
-            <section className="inspector__section">
-              <p className="inspector__hint">照片已经准备好，请先在地图上选一个地点，再保存到相册。</p>
-            </section>
-          )}
-
-          <section className={`inspector__section${selectedAlbum ? ' inspector__section--photos' : ''}`}>
-            <div className="inspector__section-title">
-              <h3>{selectedAlbum ? '相册照片' : '待处理照片'}</h3>
-              <button className="button button--ghost" onClick={onChooseImages}>
-                <Plus size={16} />
-                <span>选择图片</span>
+          <section className="detail-card">
+            <div className="detail-card__title">
+              <h3>地点备注</h3>
+              <button type="button" className="icon-button icon-button--small" onClick={() => setIsNoteEditing((value) => !value)}>
+                <Pencil size={14} />
               </button>
             </div>
-
-            <div className={`chip-grid${selectedAlbum ? ' chip-grid--compact' : ''}`}>
-              {stagedImages.length === 0 && !selectedAlbum && <p className="muted-line">暂时还没有选择图片。</p>}
-              {stagedImages.map((imagePath) => (
-                <div key={imagePath} className="file-chip">
-                  <ImageIcon size={14} />
-                  <span>{imagePath.split(/[\\/]/).pop()}</span>
-                  <button
-                    className="icon-button icon-button--small"
-                    onClick={() => onRemoveStagedImage(imagePath)}
-                    title="移除"
-                  >
-                    <X size={14} />
+            {isNoteEditing ? (
+              <div className="note-editor">
+                <textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} rows={4} />
+                <div>
+                  <button type="button" className="button button--ghost" onClick={() => setIsNoteEditing(false)}>
+                    取消
+                  </button>
+                  <button type="button" className="button button--primary" disabled={isNoteSaving} onClick={handleSaveNote}>
+                    {isNoteSaving ? '保存中...' : '保存'}
                   </button>
                 </div>
-              ))}
-            </div>
-
-            {stagedImages.length > 0 && (
-              <button
-                className="button button--primary button--full"
-                disabled={isSaving || (!draftLocation && !selectedAlbum)}
-                onClick={handleSubmit}
-              >
-                <Upload size={16} />
-                <span>
-                  {isSaving
-                    ? '保存中...'
-                    : draftLocation
-                      ? '按当前地点创建相册'
-                      : selectedAlbum
-                        ? '追加到当前相册'
-                        : '请先在地图上选点'}
-                </span>
-              </button>
-            )}
-
-            {selectedAlbum && (
-              <div className="photo-grid">
-                {isAlbumImagesLoading && <p className="muted-line">正在加载相册图片...</p>}
-                {!isAlbumImagesLoading && orderedAlbumImages.length === 0 && <p className="muted-line">当前相册还没有照片。</p>}
-                {orderedAlbumImages.map((entry) => {
-                  const imagePath = entry.path;
-                  const imageName = imagePath.split(/[\\/]/).pop() || '';
-                  const isCover = selectedAlbum.coverPath === imagePath;
-                  const isDeleteArmed = armedDeletePath === imagePath;
-                  const isDeleting = deletingImagePath === imagePath;
-
-                  return (
-                    <figure
-                      key={imagePath}
-                      className={`photo-card${isDeleteArmed ? ' photo-card--delete-armed' : ''}`}
-                      onClick={() => onViewImage(imagePath)}
-                    >
-                      <div className="photo-card__media">
-                        <img src={toLocalMediaUrl(imagePath)} alt={selectedAlbum.displayName} loading="lazy" decoding="async" draggable={false} />
-                        {isCover && !isDeleteArmed && (
-                          <span className="photo-card__cover-badge">
-                            封面
-                          </span>
-                        )}
-                        <div className="photo-card__actions">
-                          {!isCover && (
-                            <button
-                              className="photo-card__action"
-                              title="设为封面"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void onSetCover(selectedAlbum, imageName);
-                              }}
-                            >
-                              <Star size={16} />
-                            </button>
-                          )}
-                          <button
-                            className={`photo-card__action photo-card__action--danger${isDeleteArmed ? ' photo-card__action--danger-armed' : ''}`}
-                            title={isDeleteArmed ? '再次点击删除' : '删除照片'}
-                            disabled={isDeleting}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (isDeleteArmed) {
-                                setArmedDeletePath(null);
-                                void onDeleteImage(selectedAlbum.relativePath, imagePath);
-                                return;
-                              }
-                              setArmedDeletePath(imagePath);
-                            }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    </figure>
-                  );
-                })}
               </div>
+            ) : (
+              <p className={selectedAlbum.note ? 'note-text' : 'note-text note-text--empty'}>
+                {selectedAlbum.note || '暂无备注'}
+              </p>
             )}
           </section>
+
+          <section className="detail-card detail-card--time">
+            <h3>拍摄时间</h3>
+            <div className="time-row">
+              <Clock size={16} />
+              <span>{formatDateTime(selectedAlbum.updatedAt)}</span>
+            </div>
+          </section>
+
+          {stagedImages.length > 0 && (
+            <section className="detail-card">
+              <h3>待追加照片</h3>
+              <ImportList stagedImages={stagedImages} onRemove={onRemoveStagedImage} />
+              <button className="button button--primary button--full" disabled={isSaving} onClick={handleSubmit}>
+                <Upload size={16} />
+                <span>{isSaving ? '保存中...' : '追加到当前相册'}</span>
+              </button>
+            </section>
+          )}
         </div>
-      )}
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="inspector inspector--open">
+      <header className="inspector-topbar">
+        <button type="button" className="icon-button" onClick={draftLocation ? onCloseDraft : () => undefined} title="关闭">
+          <X size={18} />
+        </button>
+        <strong>{draftLocation ? '新建地点' : '导入照片'}</strong>
+        <button type="button" className="icon-button" onClick={() => void onChooseImages()} title="选择图片">
+          <Plus size={18} />
+        </button>
+      </header>
+
+      <div className="inspector-scroll">
+        {draftLocation && (
+          <section className="detail-card detail-card--draft">
+            <h3>{draftLocation.displayName}</h3>
+            <dl className="detail-list">
+              <div>
+                <dt>
+                  <MapPin size={15} />
+                  坐标
+                </dt>
+                <dd>{formatCoordinates(draftLocation.lng, draftLocation.lat)}</dd>
+              </div>
+              <div>
+                <dt>
+                  <FileText size={15} />
+                  目录
+                </dt>
+                <dd>{draftLocation.relativePath}</dd>
+              </div>
+            </dl>
+          </section>
+        )}
+
+        <section className="detail-card">
+          <h3>导入照片</h3>
+          <ImportList stagedImages={stagedImages} onRemove={onRemoveStagedImage} />
+          <div className="import-actions">
+            <button type="button" className="button button--ghost" onClick={() => void onChooseImages()}>
+              选择图片
+            </button>
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={isSaving || stagedImages.length === 0 || !draftLocation}
+              onClick={handleSubmit}
+            >
+              {isSaving ? '保存中...' : '创建相册'}
+            </button>
+          </div>
+        </section>
+      </div>
     </aside>
+  );
+}
+
+function ImportList({
+  stagedImages,
+  onRemove,
+}: {
+  stagedImages: string[];
+  onRemove: (imagePath: string) => void;
+}) {
+  if (stagedImages.length === 0) {
+    return <p className="empty-copy">暂无待导入照片</p>;
+  }
+
+  return (
+    <div className="import-list">
+      {stagedImages.map((imagePath) => (
+        <div key={imagePath} className="import-row">
+          <ImageIcon size={14} />
+          <span>{getFileName(imagePath)}</span>
+          <button type="button" className="icon-button icon-button--small" onClick={() => onRemove(imagePath)} title="移除">
+            <X size={13} />
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 
