@@ -14,6 +14,8 @@ import {
   MoreHorizontal,
   Search,
   Share2,
+  Star,
+  Trash2,
   X,
 } from 'lucide-react';
 import type { AlbumSummary, ImageMetadata } from '../shared/contracts';
@@ -28,8 +30,11 @@ interface TravelArchiveProps {
   albums: AlbumSummary[];
   isLoading: boolean;
   rootFolder: string | null;
+  deletingImagePath: string | null;
   onChooseRootFolder: () => Promise<void>;
+  onDeleteImage: (relativePath: string, imagePath: string) => Promise<boolean>;
   onOpenImages: (images: ImageMetadata[], index: number) => void;
+  onSetCover: (album: AlbumSummary, imageName: string) => Promise<boolean>;
 }
 
 function formatArchiveMonth(value: string) {
@@ -66,8 +71,11 @@ export function TravelArchive({
   albums,
   isLoading,
   rootFolder,
+  deletingImagePath,
   onChooseRootFolder,
+  onDeleteImage,
   onOpenImages,
+  onSetCover,
 }: TravelArchiveProps) {
   const [query, setQuery] = useState('');
   const [selectedAlbumPath, setSelectedAlbumPath] = useState<string | null>(null);
@@ -77,6 +85,8 @@ export function TravelArchive({
   const [heroIndex, setHeroIndex] = useState(0);
   const [photoLayout, setPhotoLayout] = useState<'grid' | 'list'>('grid');
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [armedDeletePath, setArmedDeletePath] = useState<string | null>(null);
+  const [detailCoverPath, setDetailCoverPath] = useState<string | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
 
   const filteredAlbums = useMemo(() => {
@@ -115,6 +125,19 @@ export function TravelArchive({
   const detailImages = selectedImages.length > 0 ? selectedImages : previewImages;
   const boundedHeroIndex = detailImages.length > 0 ? Math.min(heroIndex, detailImages.length - 1) : 0;
   const heroPath = detailImages[boundedHeroIndex]?.path ?? null;
+
+  useEffect(() => {
+    setDetailCoverPath(selectedAlbum?.coverPath ?? null);
+  }, [selectedAlbum?.relativePath, selectedAlbum?.coverPath]);
+
+  useEffect(() => {
+    if (!armedDeletePath) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setArmedDeletePath(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [armedDeletePath]);
 
   useEffect(() => {
     if (!rootFolder || !selectedAlbumPath) {
@@ -185,6 +208,63 @@ export function TravelArchive({
       return;
     }
     setHeroIndex((current) => (current + 1) % detailImages.length);
+  }
+
+  function openDetailImage(index: number) {
+    setHeroIndex(index);
+    onOpenImages(detailImages, index);
+  }
+
+  async function handleSetCover(imagePath: string, index: number) {
+    if (!selectedAlbum) {
+      return;
+    }
+
+    const previousCoverPath = detailCoverPath;
+    setHeroIndex(index);
+    setDetailCoverPath(imagePath);
+
+    const didSetCover = await onSetCover(selectedAlbum, getFileName(imagePath));
+    if (!didSetCover) {
+      setDetailCoverPath(previousCoverPath);
+    }
+  }
+
+  async function handleDeleteImage(imagePath: string) {
+    if (!selectedAlbum) {
+      return;
+    }
+
+    const deletedIndex = detailImages.findIndex((image) => image.path === imagePath);
+    const remainingImages = detailImages.filter((image) => image.path !== imagePath);
+    setArmedDeletePath(null);
+
+    const didDelete = await onDeleteImage(selectedAlbum.relativePath, imagePath);
+    if (!didDelete) {
+      return;
+    }
+
+    setSelectedImages((current) => {
+      const source = current.length > 0 ? current : detailImages;
+      return source.filter((image) => image.path !== imagePath);
+    });
+    setDetailCoverPath((current) => (
+      current === imagePath
+        ? remainingImages[0]?.path ?? null
+        : current
+    ));
+    setHeroIndex((current) => {
+      if (remainingImages.length === 0) {
+        return 0;
+      }
+      if (current > deletedIndex) {
+        return current - 1;
+      }
+      if (current >= remainingImages.length) {
+        return remainingImages.length - 1;
+      }
+      return current;
+    });
   }
 
   async function shareAlbum() {
@@ -459,26 +539,83 @@ export function TravelArchive({
 
                 {!isDetailLoading && !detailError && detailImages.length > 0 && (
                   <div className={`archive-detail-photo-grid archive-detail-photo-grid--${photoLayout}`}>
-                    {detailImages.map((image, index) => (
-                      <button
-                        className={index === boundedHeroIndex ? 'archive-detail-photo archive-detail-photo--active' : 'archive-detail-photo'}
-                        key={image.path}
-                        onClick={() => {
-                          setHeroIndex(index);
-                          onOpenImages(detailImages, index);
-                        }}
-                        type="button"
-                        title={getFileName(image.path)}
-                      >
-                        <img src={toLocalMediaUrl(image.path)} alt={selectedAlbum.displayName} loading="lazy" decoding="async" draggable={false} />
-                        {photoLayout === 'list' && (
-                          <span>
-                            <strong>{getFileName(image.path)}</strong>
-                            <small>{formatArchiveDay(image.mtimeMs || selectedAlbum.updatedAt)}</small>
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                    {detailImages.map((image, index) => {
+                      const imageName = getFileName(image.path);
+                      const isCover = detailCoverPath === image.path;
+                      const isDeleteArmed = armedDeletePath === image.path;
+                      const isDeleting = deletingImagePath === image.path;
+
+                      return (
+                        <figure
+                          className={[
+                            'archive-detail-photo',
+                            index === boundedHeroIndex ? 'archive-detail-photo--active' : '',
+                            isDeleteArmed ? 'archive-detail-photo--delete-armed' : '',
+                          ].filter(Boolean).join(' ')}
+                          key={image.path}
+                          onClick={() => openDetailImage(index)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              openDetailImage(index);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          title={imageName}
+                        >
+                          <img src={toLocalMediaUrl(image.path)} alt={selectedAlbum.displayName} loading="lazy" decoding="async" draggable={false} />
+                          {isCover && !isDeleteArmed && (
+                            <div className="archive-detail-photo__cover-badge">
+                              封面
+                            </div>
+                          )}
+                          <div className="archive-detail-photo__actions">
+                            {!isCover && (
+                              <button
+                                className="archive-detail-photo__action"
+                                title="设为封面"
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleSetCover(image.path, index);
+                                }}
+                              >
+                                <Star size={15} />
+                              </button>
+                            )}
+                            <button
+                              className={`archive-detail-photo__action archive-detail-photo__action--danger${isDeleteArmed ? ' archive-detail-photo__action--danger-armed' : ''}`}
+                              title={isDeleteArmed ? '再次点击删除' : '删除照片'}
+                              type="button"
+                              disabled={isDeleting}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (isDeleteArmed) {
+                                  void handleDeleteImage(image.path);
+                                  return;
+                                }
+                                setArmedDeletePath(image.path);
+                              }}
+                            >
+                              {isDeleting ? <Loader2 className="spin-icon" size={15} /> : <Trash2 size={15} />}
+                            </button>
+                          </div>
+                          {isDeleteArmed && (
+                            <div className="archive-detail-photo__delete-prompt">
+                              <Trash2 size={14} />
+                              <span>{isDeleting ? '删除中...' : '再次点击删除'}</span>
+                            </div>
+                          )}
+                          {photoLayout === 'list' && (
+                            <span className="archive-detail-photo__text">
+                              <strong>{imageName}</strong>
+                              <small>{formatArchiveDay(image.mtimeMs || selectedAlbum.updatedAt)}</small>
+                            </span>
+                          )}
+                        </figure>
+                      );
+                    })}
                   </div>
                 )}
               </section>

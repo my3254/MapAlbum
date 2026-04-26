@@ -14,8 +14,8 @@ interface InspectorPanelProps {
   onChooseImages: () => Promise<void>;
   onCloseDraft: () => void;
   onCloseSelectedAlbum: () => void;
-  onDeleteImage: (relativePath: string, imagePath: string) => Promise<void>;
-  onSetCover: (album: AlbumSummary, imageName: string) => Promise<void>;
+  onDeleteImage: (relativePath: string, imagePath: string) => Promise<boolean>;
+  onSetCover: (album: AlbumSummary, imageName: string) => Promise<boolean>;
   onSetNote: (album: AlbumSummary, note: string) => Promise<void>;
   onViewImage: (imagePath: string) => void;
 }

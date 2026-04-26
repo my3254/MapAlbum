@@ -28,6 +28,13 @@ function getFileName(filePath: string) {
   return filePath.split(/[\\/]/).pop() || '未命名图片';
 }
 
+function joinAlbumImagePath(rootFolder: string, relativePath: string, imageName: string) {
+  const separator = rootFolder.includes('\\') ? '\\' : '/';
+  const root = rootFolder.replace(/[\\/]+$/, '');
+  const segments = relativePath.split(/[\\/]/).filter(Boolean);
+  return [root, ...segments, imageName].join(separator);
+}
+
 function createCoordinateLocation(lng: number, lat: number) {
   return createLocationDraft({
     province: '',
@@ -483,16 +490,31 @@ export default function App() {
 
   async function setAlbumCover(album: AlbumSummary, imageName: string) {
     if (!rootFolder) {
-      return;
+      return false;
     }
 
     try {
       await window.api.setAlbumCover(rootFolder, album.relativePath, imageName);
+      const nextCoverPath = joinAlbumImagePath(rootFolder, album.relativePath, imageName);
+      setAlbums((current) => current.map((item) => (
+        item.relativePath === album.relativePath
+          ? {
+              ...item,
+              coverPath: nextCoverPath,
+              previewPaths: [
+                nextCoverPath,
+                ...item.previewPaths.filter((path) => path !== nextCoverPath),
+              ].slice(0, Math.max(1, item.previewPaths.length)),
+            }
+          : item
+      )));
       setReloadTick((value) => value + 1);
       setNotice('相册封面已更新。');
+      return true;
     } catch (error) {
       console.error(error);
       setNotice('更新相册封面失败。');
+      return false;
     }
   }
 
@@ -513,12 +535,12 @@ export default function App() {
 
   async function deleteAlbumImage(relativePath: string, imagePath: string) {
     if (!rootFolder) {
-      return;
+      return false;
     }
 
     const imageName = imagePath.split(/[\\/]/).pop();
     if (!imageName) {
-      return;
+      return false;
     }
 
     setDeletingImagePath(imagePath);
@@ -530,9 +552,11 @@ export default function App() {
       setTimelineTotal((current) => Math.max(0, current - 1));
       setReloadTick((value) => value + 1);
       setNotice(`已删除照片 ${imageName}。`);
+      return true;
     } catch (error) {
       console.error(error);
       setNotice(error instanceof Error ? error.message : '删除照片失败。');
+      return false;
     } finally {
       setDeletingImagePath(null);
     }
@@ -804,13 +828,16 @@ export default function App() {
         {viewMode === 'archive' ? (
           <TravelArchive
             albums={albums}
+            deletingImagePath={deletingImagePath}
             isLoading={isAlbumsLoading}
             rootFolder={rootFolder}
             onChooseRootFolder={chooseRootFolder}
+            onDeleteImage={deleteAlbumImage}
             onOpenImages={(images, index) => {
               setViewerSource(images);
               setViewerIndex(index);
             }}
+            onSetCover={setAlbumCover}
           />
         ) : (
           <div className="workspace__map">
