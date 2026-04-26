@@ -15,6 +15,7 @@ const PUBLIC_PATH = path.join(DIST_PATH, '../public');
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 const ALBUM_META_FILENAME = '_meta.json';
 const CONFIG_FILENAME = 'config.json';
+const APP_NAME = '旅行者相册';
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif']);
 const AMAP_WEB_KEY = process.env['VITE_AMAP_WEB_KEY']?.trim() || '';
 const SHOULD_DISABLE_HARDWARE_ACCELERATION = process.env['MAPALBUM_DISABLE_GPU'] === '1';
@@ -22,6 +23,7 @@ const SHOULD_DISABLE_HARDWARE_ACCELERATION = process.env['MAPALBUM_DISABLE_GPU']
 if (!app.isPackaged) {
   app.setPath('userData', path.join(app.getPath('appData'), 'MapAlbum-dev'));
 }
+app.setName(APP_NAME);
 
 function getConfigPath() {
   return path.join(app.getPath('userData'), CONFIG_FILENAME);
@@ -74,7 +76,7 @@ function buildWindow() {
     minHeight: 760,
     backgroundColor: '#081117',
     show: false,
-    title: 'MapAlbum',
+    title: APP_NAME,
     icon: path.join(process.env.VITE_PUBLIC, 'icon.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -553,7 +555,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('system:chooseRootFolder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow ?? undefined, {
-      title: '选择 MapAlbum 根目录',
+      title: `选择 ${APP_NAME} 根目录`,
       properties: ['openDirectory', 'createDirectory'],
     });
 

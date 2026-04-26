@@ -203,7 +203,7 @@ function InspectorPanelInner({
       {!draftLocation && !selectedAlbum && (
         <div className="placeholder-block placeholder-block--large">
           <p>可以在地图上手动选点，也可以先用左侧的手机上传功能接收照片。</p>
-          <p>如果上传的照片带有 EXIF GPS 信息，MapAlbum 会自动尝试定位。</p>
+          <p>如果上传的照片带有 EXIF GPS 信息，旅行者相册会自动尝试定位。</p>
         </div>
       )}
 

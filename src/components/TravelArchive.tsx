@@ -249,7 +249,7 @@ export function TravelArchive({
             <div className="archive-empty">
               <Archive size={34} />
               <h3>还没有选择相册根目录</h3>
-              <p>先选择一个本地目录，ChronosMap 会基于地点生成旅行档案。</p>
+              <p>先选择一个本地目录，旅行者相册会基于地点生成旅行档案。</p>
               <button className="button button--primary" onClick={() => void onChooseRootFolder()} type="button">
                 选择根目录
               </button>

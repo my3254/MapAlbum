@@ -1,6 +1,6 @@
-# MapAlbum
+# 旅行者相册
 
-MapAlbum is a desktop photo workspace built with Electron, React, and Vite. It organizes photos by geographic location, lets you pick places directly on a map, and stores albums in a nested local folder structure.
+旅行者相册 is a desktop photo workspace built with Electron, React, and Vite. It organizes photos by geographic location, lets you pick places directly on a map, and stores albums in a nested local folder structure.
 
 This project is designed for local-first photo management: the app works on your machine, the album root folder is user-selected, and photo files are copied into location-based directories together with metadata.
 
@@ -26,7 +26,7 @@ This project is designed for local-first photo management: the app works on your
 
 ## Folder Convention
 
-MapAlbum creates folders automatically based on resolved location data.
+旅行者相册 creates folders automatically based on resolved location data.
 
 ```text
 your-root-folder/
@@ -120,7 +120,7 @@ Build output:
 
 ## Current Scope
 
-MapAlbum currently focuses on local desktop workflows:
+旅行者相册 currently focuses on local desktop workflows:
 
 - local root-folder based album storage
 - map-based geographic album management

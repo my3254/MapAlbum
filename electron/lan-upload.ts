@@ -97,7 +97,7 @@ function buildUploadPage(uploadUrl: string) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <title>MapAlbum 极速上传</title>
+    <title>旅行者相册 极速上传</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
       :root {
@@ -274,8 +274,8 @@ function buildUploadPage(uploadUrl: string) {
   <body>
     <main>
       <div class="card">
-        <h1>上传照片到 MapAlbum</h1>
-        <p>保持手机和电脑在同一个局域网，然后选择原始照片上传。MapAlbum 会优先读取照片里的 GPS 信息。</p>
+        <h1>上传照片到旅行者相册</h1>
+        <p>保持手机和电脑在同一个局域网，然后选择原始照片上传。旅行者相册会优先读取照片里的 GPS 信息。</p>
         <p class="url">${escapedUrl}</p>
         <form id="upload-form">
           <div class="file-upload-wrapper">
@@ -390,7 +390,7 @@ function buildMobileUploadPage(uploadUrl: string) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <title>ChronosMap 手机同步</title>
+    <title>旅行者相册 手机同步</title>
     <style>
       :root {
         color-scheme: dark;
@@ -866,7 +866,7 @@ function buildMobileUploadPage(uploadUrl: string) {
               <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 16V7m0 0 3.5 3.5M12 7l-3.5 3.5M5 17.5A4.5 4.5 0 0 1 6.7 8.8 6 6 0 0 1 18 10.8a3.7 3.7 0 0 1 1 7.2H6.5" />
             </svg>
             <strong>点击上传</strong>
-            <small>选择手机原图，ChronosMap 会同步到电脑。<br />${escapedUrl}</small>
+            <small>选择手机原图，旅行者相册会同步到电脑。<br />${escapedUrl}</small>
           </label>
 
           <div class="upload-actions">

@@ -1,8 +1,8 @@
 {
   "name": "mapalbum",
   "private": true,
-  "version": "1.0.0",
-  "description": "小狗相册桌面端",
+  "version": "1.2.0",
+  "description": "旅行者相册桌面端",
   "author": "zhangyong",
   "type": "module",
   "main": "dist-electron/main.js",
@@ -42,8 +42,8 @@
     "wait-on": "^9.0.5"
   },
   "build": {
-    "appId": "com.mapalbum.xiaogouxiangce",
-    "productName": "小狗相册",
+    "appId": "com.mapalbum.traveleralbum",
+    "productName": "旅行者相册",
     "directories": {
       "output": "release"
     },
@@ -65,14 +65,14 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "小狗相册-安装包-${version}.${ext}"
+      "artifactName": "旅行者相册-安装包-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "小狗相册",
+      "shortcutName": "旅行者相册",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico"

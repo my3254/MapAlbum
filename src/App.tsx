@@ -192,7 +192,7 @@ export default function App() {
       while (!folderInProgress) {
         folderInProgress = await window.api.chooseRootFolder();
         if (!folderInProgress) {
-          setNotice('MapAlbum 需要先选择一个根目录才能运行，请选择用于存放相册的文件夹。');
+          setNotice('旅行者相册需要先选择一个根目录才能运行，请选择用于存放相册的文件夹。');
         }
       }
 
@@ -697,7 +697,7 @@ export default function App() {
           </button>
           <div className="top-nav__brand">
             <Compass size={28} />
-            <span>ChronosMap</span>
+            <span>旅行者相册</span>
           </div>
         </div>
 
@@ -720,8 +720,8 @@ export default function App() {
           <button className="top-nav__icon" onClick={chooseRootFolder} title="选择相册根目录">
             <Settings size={20} />
           </button>
-          <div className="top-nav__avatar" title="MapAlbum">
-            CM
+          <div className="top-nav__avatar" title="旅行者相册">
+            旅
           </div>
         </div>
       </header>
@@ -891,11 +891,11 @@ export default function App() {
           <div className="setup-card">
             <div className="setup-card__brand">
               <div className="setup-card__eyebrow">Welcome To</div>
-              <h1>MapAlbum</h1>
+              <h1>旅行者相册</h1>
             </div>
             <p>
               请先选择一个根目录来存放和管理您的照片相册。<br />
-              MapAlbum 将基于此目录生成地理位置归档。
+              旅行者相册将基于此目录生成地理位置归档。
             </p>
             <button className="button button--primary" onClick={chooseRootFolder}>
               立即选择根目录
