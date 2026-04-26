@@ -1,6 +1,8 @@
-import { memo, useEffect, useMemo, useState } from 'react';
-import { FileText, Image as ImageIcon, MapPin, Plus, Star, Trash2, Upload, X } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { UIEvent } from 'react';
+import { FileText, MapPin, Plus, Star, Trash2, X } from 'lucide-react';
 import type { AlbumSummary, ImageMetadata, LocationDraft } from '../shared/contracts';
+import { formatAlbumDisplayName, formatAlbumRelativePathForDisplay } from '../shared/location';
 import { toLocalMediaUrl } from '../shared/media';
 
 interface InspectorPanelProps {
@@ -8,16 +10,11 @@ interface InspectorPanelProps {
   deletingImagePath: string | null;
   draftLocation: LocationDraft | null;
   isAlbumImagesLoading: boolean;
-  isSaving: boolean;
   selectedAlbum: AlbumSummary | null;
-  stagedImages: string[];
-  onAddImagesToAlbum: (album: AlbumSummary, sourcePaths: string[]) => Promise<void>;
   onChooseImages: () => Promise<void>;
   onCloseDraft: () => void;
   onCloseSelectedAlbum: () => void;
-  onCreateAlbum: (location: LocationDraft, sourcePaths: string[]) => Promise<void>;
   onDeleteImage: (relativePath: string, imagePath: string) => Promise<void>;
-  onRemoveStagedImage: (imagePath: string) => void;
   onSetCover: (album: AlbumSummary, imageName: string) => Promise<void>;
   onSetNote: (album: AlbumSummary, note: string) => Promise<void>;
   onViewImage: (imagePath: string) => void;
@@ -27,21 +24,22 @@ function formatCoordinates(lng: number, lat: number) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
+const PHOTO_GRID_COLUMNS = 2;
+const PHOTO_CARD_HEIGHT = 156;
+const PHOTO_CARD_GAP = 10;
+const PHOTO_ROW_HEIGHT = PHOTO_CARD_HEIGHT + PHOTO_CARD_GAP;
+const PHOTO_OVERSCAN_ROWS = 4;
+
 function InspectorPanelInner({
   albumImages,
   deletingImagePath,
   draftLocation,
   isAlbumImagesLoading,
-  isSaving,
   selectedAlbum,
-  stagedImages,
-  onAddImagesToAlbum,
   onChooseImages,
   onCloseDraft,
   onCloseSelectedAlbum,
-  onCreateAlbum,
   onDeleteImage,
-  onRemoveStagedImage,
   onSetCover,
   onSetNote,
   onViewImage,
@@ -50,6 +48,11 @@ function InspectorPanelInner({
   const [isNoteEditing, setIsNoteEditing] = useState(false);
   const [isNoteSaving, setIsNoteSaving] = useState(false);
   const [armedDeletePath, setArmedDeletePath] = useState<string | null>(null);
+  const photoGridRef = useRef<HTMLDivElement | null>(null);
+  const photoScrollRafRef = useRef<number | null>(null);
+  const latestPhotoScrollTopRef = useRef(0);
+  const [photoScrollTop, setPhotoScrollTop] = useState(0);
+  const [photoViewportHeight, setPhotoViewportHeight] = useState(520);
 
   const title = useMemo(() => {
     if (draftLocation) {
@@ -57,15 +60,11 @@ function InspectorPanelInner({
     }
 
     if (selectedAlbum) {
-      return selectedAlbum.displayName;
-    }
-
-    if (stagedImages.length > 0) {
-      return '待处理照片';
+      return formatAlbumDisplayName(selectedAlbum);
     }
 
     return '等待操作';
-  }, [draftLocation, selectedAlbum, stagedImages.length]);
+  }, [draftLocation, selectedAlbum]);
 
   useEffect(() => {
     setNoteDraft(selectedAlbum?.note ?? '');
@@ -82,20 +81,38 @@ function InspectorPanelInner({
     return () => window.clearTimeout(timer);
   }, [armedDeletePath]);
 
-  async function handleSubmit() {
-    if (stagedImages.length === 0 || isSaving) {
+  useEffect(() => () => {
+    if (photoScrollRafRef.current !== null) {
+      window.cancelAnimationFrame(photoScrollRafRef.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    const grid = photoGridRef.current;
+    if (!grid) {
       return;
     }
 
-    if (draftLocation) {
-      await onCreateAlbum(draftLocation, stagedImages);
+    grid.scrollTop = 0;
+    latestPhotoScrollTopRef.current = 0;
+    setPhotoScrollTop(0);
+  }, [selectedAlbum?.relativePath]);
+
+  useEffect(() => {
+    const grid = photoGridRef.current;
+    if (!grid) {
       return;
     }
 
-    if (selectedAlbum) {
-      await onAddImagesToAlbum(selectedAlbum, stagedImages);
-    }
-  }
+    const updateViewportHeight = () => {
+      setPhotoViewportHeight(grid.clientHeight || 520);
+    };
+
+    updateViewportHeight();
+    const resizeObserver = new ResizeObserver(updateViewportHeight);
+    resizeObserver.observe(grid);
+    return () => resizeObserver.disconnect();
+  }, [selectedAlbum?.relativePath]);
 
   async function handleSaveNote() {
     if (!selectedAlbum || isNoteSaving) {
@@ -111,7 +128,7 @@ function InspectorPanelInner({
     }
   }
 
-  const isPanelOpen = Boolean(draftLocation || selectedAlbum || stagedImages.length > 0);
+  const isPanelOpen = Boolean(draftLocation || selectedAlbum);
   const orderedAlbumImages = useMemo(() => {
     if (!selectedAlbum?.coverPath) {
       return albumImages;
@@ -128,6 +145,37 @@ function InspectorPanelInner({
     });
   }, [albumImages, selectedAlbum?.coverPath]);
 
+  const photoRowCount = Math.ceil(orderedAlbumImages.length / PHOTO_GRID_COLUMNS);
+  const photoGridVirtualHeight = photoRowCount > 0
+    ? photoRowCount * PHOTO_CARD_HEIGHT + (photoRowCount - 1) * PHOTO_CARD_GAP
+    : 0;
+  const firstVisiblePhotoRow = Math.max(
+    0,
+    Math.floor(photoScrollTop / PHOTO_ROW_HEIGHT) - PHOTO_OVERSCAN_ROWS,
+  );
+  const visiblePhotoRowCount = Math.ceil(photoViewportHeight / PHOTO_ROW_HEIGHT) + PHOTO_OVERSCAN_ROWS * 2;
+  const lastVisiblePhotoRow = Math.min(photoRowCount, firstVisiblePhotoRow + visiblePhotoRowCount);
+  const virtualPhotoRows = useMemo(
+    () => Array.from(
+      { length: Math.max(0, lastVisiblePhotoRow - firstVisiblePhotoRow) },
+      (_, index) => firstVisiblePhotoRow + index,
+    ),
+    [firstVisiblePhotoRow, lastVisiblePhotoRow],
+  );
+
+  const handlePhotoGridScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    latestPhotoScrollTopRef.current = event.currentTarget.scrollTop;
+
+    if (photoScrollRafRef.current !== null) {
+      return;
+    }
+
+    photoScrollRafRef.current = window.requestAnimationFrame(() => {
+      photoScrollRafRef.current = null;
+      setPhotoScrollTop(latestPhotoScrollTopRef.current);
+    });
+  }, []);
+
   return (
     <aside className={`inspector${isPanelOpen ? ' inspector--open' : ''}`}>
       <div className="inspector__header">
@@ -137,9 +185,7 @@ function InspectorPanelInner({
               ? '新建地点'
               : selectedAlbum
                 ? '相册详情'
-                : stagedImages.length > 0
-                  ? '待导入'
-                  : '工作区'}
+                : '工作区'}
           </p>
           <h2>{title}</h2>
         </div>
@@ -154,14 +200,14 @@ function InspectorPanelInner({
         )}
       </div>
 
-      {!draftLocation && !selectedAlbum && stagedImages.length === 0 && (
+      {!draftLocation && !selectedAlbum && (
         <div className="placeholder-block placeholder-block--large">
           <p>可以在地图上手动选点，也可以先用左侧的手机上传功能接收照片。</p>
           <p>如果上传的照片带有 EXIF GPS 信息，MapAlbum 会自动尝试定位。</p>
         </div>
       )}
 
-      {(draftLocation || selectedAlbum || stagedImages.length > 0) && (
+      {(draftLocation || selectedAlbum) && (
         <div className={`inspector__content${selectedAlbum ? ' inspector__content--album' : ''}`}>
           {(draftLocation || selectedAlbum) && (
             <section className="inspector__section">
@@ -169,7 +215,7 @@ function InspectorPanelInner({
                 <MapPin size={14} />
                 <span>{formatCoordinates((draftLocation ?? selectedAlbum)!.lng, (draftLocation ?? selectedAlbum)!.lat)}</span>
               </div>
-              <p className="inspector__path">{(draftLocation ?? selectedAlbum)!.relativePath}</p>
+              <p className="inspector__path">{formatAlbumRelativePathForDisplay((draftLocation ?? selectedAlbum)!.relativePath)}</p>
               <p className="inspector__hint">
                 {draftLocation
                   ? '这个地点草稿来自地图选点或照片 GPS，已经可以直接创建新相册。'
@@ -219,115 +265,95 @@ function InspectorPanelInner({
             </section>
           )}
 
-          {!draftLocation && !selectedAlbum && stagedImages.length > 0 && (
-            <section className="inspector__section">
-              <p className="inspector__hint">照片已经准备好，请先在地图上选一个地点，再保存到相册。</p>
-            </section>
-          )}
-
           <section className={`inspector__section${selectedAlbum ? ' inspector__section--photos' : ''}`}>
             <div className="inspector__section-title">
-              <h3>{selectedAlbum ? '相册照片' : '待处理照片'}</h3>
+              <h3>{selectedAlbum ? '相册照片' : '新地点照片'}</h3>
               <button className="button button--ghost" onClick={onChooseImages}>
                 <Plus size={16} />
                 <span>选择图片</span>
               </button>
             </div>
 
-            <div className={`chip-grid${selectedAlbum ? ' chip-grid--compact' : ''}`}>
-              {stagedImages.length === 0 && !selectedAlbum && <p className="muted-line">暂时还没有选择图片。</p>}
-              {stagedImages.map((imagePath) => (
-                <div key={imagePath} className="file-chip">
-                  <ImageIcon size={14} />
-                  <span>{imagePath.split(/[\\/]/).pop()}</span>
-                  <button
-                    className="icon-button icon-button--small"
-                    onClick={() => onRemoveStagedImage(imagePath)}
-                    title="移除"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {stagedImages.length > 0 && (
-              <button
-                className="button button--primary button--full"
-                disabled={isSaving || (!draftLocation && !selectedAlbum)}
-                onClick={handleSubmit}
-              >
-                <Upload size={16} />
-                <span>
-                  {isSaving
-                    ? '保存中...'
-                    : draftLocation
-                      ? '按当前地点创建相册'
-                      : selectedAlbum
-                        ? '追加到当前相册'
-                        : '请先在地图上选点'}
-                </span>
-              </button>
+            {!selectedAlbum && (
+              <p className="muted-line">选择图片后会进入独立的待归档面板，在那里确认定位并保存。</p>
             )}
 
             {selectedAlbum && (
-              <div className="photo-grid">
+              <div className="photo-grid" ref={photoGridRef} onScroll={handlePhotoGridScroll}>
                 {isAlbumImagesLoading && <p className="muted-line">正在加载相册图片...</p>}
                 {!isAlbumImagesLoading && orderedAlbumImages.length === 0 && <p className="muted-line">当前相册还没有照片。</p>}
-                {orderedAlbumImages.map((entry) => {
-                  const imagePath = entry.path;
-                  const imageName = imagePath.split(/[\\/]/).pop() || '';
-                  const isCover = selectedAlbum.coverPath === imagePath;
-                  const isDeleteArmed = armedDeletePath === imagePath;
-                  const isDeleting = deletingImagePath === imagePath;
-
-                  return (
-                    <figure
-                      key={imagePath}
-                      className={`photo-card${isDeleteArmed ? ' photo-card--delete-armed' : ''}`}
-                      onClick={() => onViewImage(imagePath)}
+                {!isAlbumImagesLoading && orderedAlbumImages.length > 0 && (
+                  <div className="photo-grid__virtual" style={{ height: photoGridVirtualHeight }}>
+                    <div
+                      className="photo-grid__window"
+                      style={{ transform: `translateY(${firstVisiblePhotoRow * PHOTO_ROW_HEIGHT}px)` }}
                     >
-                      <div className="photo-card__media">
-                        <img src={toLocalMediaUrl(imagePath)} alt={selectedAlbum.displayName} loading="lazy" decoding="async" draggable={false} />
-                        {isCover && !isDeleteArmed && (
-                          <span className="photo-card__cover-badge">
-                            封面
-                          </span>
-                        )}
-                        <div className="photo-card__actions">
-                          {!isCover && (
-                            <button
-                              className="photo-card__action"
-                              title="设为封面"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void onSetCover(selectedAlbum, imageName);
-                              }}
-                            >
-                              <Star size={16} />
-                            </button>
-                          )}
-                          <button
-                            className={`photo-card__action photo-card__action--danger${isDeleteArmed ? ' photo-card__action--danger-armed' : ''}`}
-                            title={isDeleteArmed ? '再次点击删除' : '删除照片'}
-                            disabled={isDeleting}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (isDeleteArmed) {
-                                setArmedDeletePath(null);
-                                void onDeleteImage(selectedAlbum.relativePath, imagePath);
-                                return;
-                              }
-                              setArmedDeletePath(imagePath);
-                            }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                      {virtualPhotoRows.map((rowIndex) => (
+                        <div className="photo-grid__row" key={rowIndex}>
+                          {Array.from({ length: PHOTO_GRID_COLUMNS }, (_, columnIndex) => {
+                            const entry = orderedAlbumImages[rowIndex * PHOTO_GRID_COLUMNS + columnIndex];
+                            if (!entry) {
+                              return null;
+                            }
+
+                            const imagePath = entry.path;
+                            const imageName = imagePath.split(/[\\/]/).pop() || '';
+                            const isCover = selectedAlbum.coverPath === imagePath;
+                            const isDeleteArmed = armedDeletePath === imagePath;
+                            const isDeleting = deletingImagePath === imagePath;
+
+                            return (
+                              <figure
+                                key={imagePath}
+                                className={`photo-card${isDeleteArmed ? ' photo-card--delete-armed' : ''}`}
+                                onClick={() => onViewImage(imagePath)}
+                              >
+                                <div className="photo-card__media">
+                                  <img src={toLocalMediaUrl(imagePath)} alt={selectedAlbum.displayName} loading="lazy" decoding="async" draggable={false} />
+                                  {isCover && !isDeleteArmed && (
+                                    <span className="photo-card__cover-badge">
+                                      封面
+                                    </span>
+                                  )}
+                                  <div className="photo-card__actions">
+                                    {!isCover && (
+                                      <button
+                                        className="photo-card__action"
+                                        title="设为封面"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void onSetCover(selectedAlbum, imageName);
+                                        }}
+                                      >
+                                        <Star size={16} />
+                                      </button>
+                                    )}
+                                    <button
+                                      className={`photo-card__action photo-card__action--danger${isDeleteArmed ? ' photo-card__action--danger-armed' : ''}`}
+                                      title={isDeleteArmed ? '再次点击删除' : '删除照片'}
+                                      disabled={isDeleting}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        if (isDeleteArmed) {
+                                          setArmedDeletePath(null);
+                                          void onDeleteImage(selectedAlbum.relativePath, imagePath);
+                                          return;
+                                        }
+                                        setArmedDeletePath(imagePath);
+                                      }}
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                </div>
+                              </figure>
+                            );
+                          })}
                         </div>
-                      </div>
-                    </figure>
-                  );
-                })}
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </section>

@@ -6,7 +6,7 @@ import https from 'https';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { AlbumLocationInput, AlbumSummary, ImageMetadata, TimelineImageMetadata, TimelinePage } from '../src/shared/contracts';
-import { createLocationDraft } from '../src/shared/location';
+import { createLocationDraft, formatAlbumDisplayName } from '../src/shared/location';
 import { LanUploadService } from './lan-upload';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -213,7 +213,7 @@ async function buildAlbumSummary(rootFolder: string, albumDirectory: string, met
   return {
     ...meta,
     relativePath: meta.relativePath || path.relative(rootFolder, albumDirectory),
-    displayName: meta.displayName || createLocationDraft(meta).displayName,
+    displayName: formatAlbumDisplayName(meta),
     imageCount: images.length,
     coverPath: finalCoverPath,
     previewPaths: images.slice(0, 4),

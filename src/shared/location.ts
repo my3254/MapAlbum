@@ -2,6 +2,7 @@ import type { AlbumLocationInput, LocationDraft } from './contracts';
 
 const INVALID_SEGMENT_CHARS = /[<>:"/\\|?*\u0000-\u001f]/g;
 const COORDINATE_PRECISION = 6;
+export const LOCATION_DISPLAY_SEPARATOR = ' · ';
 
 function buildCoordinateFallback(location: Pick<AlbumLocationInput, 'lng' | 'lat'>) {
   return `坐标_${location.lat.toFixed(COORDINATE_PRECISION)}_${location.lng.toFixed(COORDINATE_PRECISION)}`;
@@ -29,6 +30,19 @@ export function buildAlbumSegments(
   return [buildCoordinateFallback(location)];
 }
 
+export function formatAlbumSegmentsForDisplay(segments: string[]) {
+  return segments.filter(Boolean).join(LOCATION_DISPLAY_SEPARATOR);
+}
+
+export function formatAlbumRelativePathForDisplay(relativePath: string) {
+  const segments = relativePath
+    .split(/[\\/]+/)
+    .map(sanitizePathSegment)
+    .filter(Boolean);
+
+  return formatAlbumSegmentsForDisplay(segments) || relativePath;
+}
+
 export function buildAlbumRelativePath(
   location: Pick<AlbumLocationInput, 'province' | 'city' | 'district' | 'township' | 'lng' | 'lat'>,
 ) {
@@ -40,7 +54,7 @@ export function formatAlbumDisplayName(
 ) {
   const segments = buildAlbumSegments(location);
   return segments.length > 0
-    ? segments.join(' / ')
+    ? formatAlbumSegmentsForDisplay(segments)
     : `坐标 ${location.lat.toFixed(COORDINATE_PRECISION)}, ${location.lng.toFixed(COORDINATE_PRECISION)}`;
 }
 

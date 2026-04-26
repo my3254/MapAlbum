@@ -43,6 +43,23 @@ export interface LanUploadBatch {
   files: ImportedImageFile[];
 }
 
+export interface RecentLanUpload {
+  id: string;
+  path: string;
+  name: string;
+  receivedAt: string;
+  hasGps: boolean;
+}
+
+export type StagedImageLocationSource = 'gps' | 'manual';
+
+export interface StagedImageItem {
+  path: string;
+  name: string;
+  location: LocationDraft | null;
+  locationSource: StagedImageLocationSource | null;
+}
+
 export interface LanServerState {
   isRunning: boolean;
   url: string | null;

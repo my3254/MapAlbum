@@ -37,10 +37,26 @@ function isPrivateIpv4(address: string) {
   );
 }
 
+function isVirtualInterfaceName(name: string) {
+  return /(vpn|tun|tap|virtual|vmware|vbox|hyper-v|loopback|bluetooth|wsl|docker|vEthernet)/i.test(name);
+}
+
 function getInterfacePriority(name: string, address: string) {
   const lowerName = name.toLowerCase();
 
-  if (isPrivateIpv4(address) && /(wi-?fi|wlan|wireless)/.test(lowerName)) {
+  if (isVirtualInterfaceName(name)) {
+    return 9;
+  }
+
+  if (isPrivateIpv4(address) && /(wi-?fi|wifi|wlan|wireless|无线)/.test(lowerName)) {
+    return 0;
+  }
+
+  if (isPrivateIpv4(address) && /(ethernet|lan|local area|以太网)/.test(lowerName)) {
+    return 1;
+  }
+
+  if (isPrivateIpv4(address) && /(wi-?fi|wifi|wlan|wireless|无线)/.test(lowerName)) {
     return 0;
   }
 
@@ -50,10 +66,6 @@ function getInterfacePriority(name: string, address: string) {
 
   if (isPrivateIpv4(address)) {
     return 2;
-  }
-
-  if (/(vpn|tun|tap|virtual|vmware|vbox|hyper-v|loopback|bluetooth)/.test(lowerName)) {
-    return 9;
   }
 
   return 5;
@@ -370,6 +382,735 @@ function buildUploadPage(uploadUrl: string) {
 </html>`;
 }
 
+function buildMobileUploadPage(uploadUrl: string) {
+  const escapedUrl = escapeHtml(uploadUrl);
+
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>ChronosMap 手机同步</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --background: #111317;
+        --surface-high: #282a2e;
+        --surface-highest: #333539;
+        --text-primary: #e2e2e8;
+        --text-secondary: #b9cbc1;
+        --text-muted: rgba(226, 226, 232, 0.58);
+        --primary: #fbfffa;
+        --accent: #00ffc2;
+        --accent-ink: #003828;
+        --accent-glow: rgba(0, 255, 194, 0.34);
+        --outline: rgba(255, 255, 255, 0.1);
+        --danger: #ffb4ab;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        min-height: 100dvh;
+        padding: 88px 16px 32px;
+        background:
+          radial-gradient(circle at 88% 12%, rgba(0, 255, 194, 0.08), transparent 26rem),
+          linear-gradient(180deg, rgba(12, 14, 18, 0.86), var(--background) 22rem),
+          var(--background);
+        color: var(--text-primary);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+        color: inherit;
+      }
+
+      p {
+        margin: 0;
+      }
+
+      .top-bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 20;
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr) 44px;
+        align-items: center;
+        height: 64px;
+        width: 100%;
+        max-width: 430px;
+        margin: 0 auto;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--outline);
+        background: rgba(2, 6, 23, 0.82);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08), 0 18px 38px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+
+      .top-bar h1 {
+        overflow: hidden;
+        margin: 0;
+        color: #fff;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
+        font-size: 1.16rem;
+        font-weight: 800;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .icon-button {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 999px;
+        background: transparent;
+        color: rgba(226, 226, 232, 0.68);
+      }
+
+      .icon {
+        display: inline-block;
+        width: 1.25rem;
+        height: 1.25rem;
+        flex: 0 0 auto;
+      }
+
+      .back-icon {
+        color: currentColor;
+        font-size: 1.9rem;
+        line-height: 1;
+      }
+
+      .upload-icon {
+        width: 2.8rem;
+        height: 2.8rem;
+        margin-bottom: 12px;
+        color: var(--accent);
+        filter: drop-shadow(0 0 8px var(--accent-glow));
+      }
+
+      .sync-icon {
+        width: 1.05rem;
+        height: 1.05rem;
+      }
+
+      main {
+        width: 100%;
+        max-width: 430px;
+        margin: 0 auto;
+      }
+
+      .sync-card {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--outline);
+        border-radius: 12px;
+        background: rgba(40, 42, 46, 0.42);
+        box-shadow: 0 24px 54px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+      }
+
+      .sync-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(0, 255, 194, 0.08), transparent 48%);
+        pointer-events: none;
+      }
+
+      .upload-panel {
+        position: relative;
+        z-index: 1;
+        padding: 24px;
+      }
+
+      .file-input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .upload-drop {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-height: 164px;
+        padding: 28px 18px;
+        border: 2px dashed rgba(0, 255, 194, 0.32);
+        border-radius: 8px;
+        background: rgba(51, 53, 57, 0.22);
+        color: var(--primary);
+        text-align: center;
+        cursor: pointer;
+        transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+      }
+
+      .upload-drop:active {
+        transform: scale(0.99);
+      }
+
+      .upload-drop span:first-child {
+        margin-bottom: 12px;
+        color: var(--accent);
+        font-size: 2.75rem;
+        filter: drop-shadow(0 0 8px var(--accent-glow));
+      }
+
+      .upload-drop strong {
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
+        font-size: 1.42rem;
+        font-weight: 800;
+      }
+
+      .upload-drop small {
+        margin-top: 8px;
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        line-height: 1.45;
+      }
+
+      .upload-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .primary-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 46px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-weight: 900;
+        cursor: pointer;
+        box-shadow: 0 0 18px rgba(0, 255, 194, 0.24);
+      }
+
+      .primary-button:disabled {
+        opacity: 0.42;
+        cursor: not-allowed;
+      }
+
+      .progress-card {
+        margin-top: 22px;
+      }
+
+      .progress-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .progress-head span {
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+        font-weight: 700;
+      }
+
+      .progress-head strong {
+        color: var(--accent);
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
+        font-size: 1.46rem;
+        font-weight: 900;
+        line-height: 1;
+        text-shadow: 0 0 8px rgba(0, 255, 194, 0.24);
+      }
+
+      .progress-bar {
+        overflow: hidden;
+        height: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 999px;
+        background: var(--surface-highest);
+      }
+
+      .progress-fill {
+        position: relative;
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--accent);
+        box-shadow: 0 0 10px var(--accent);
+        transition: width 120ms linear;
+      }
+
+      .progress-fill::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.34), transparent);
+        animation: shimmer 2s infinite;
+      }
+
+      .status-message {
+        min-height: 20px;
+        margin-top: 12px;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        line-height: 1.45;
+      }
+
+      .status-message.error {
+        color: var(--danger);
+      }
+
+      .section-title {
+        margin: 26px 0 14px;
+        color: var(--primary);
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
+        font-size: 1.42rem;
+        font-weight: 800;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
+      }
+
+      .file-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .file-row {
+        position: relative;
+        overflow: hidden;
+        display: grid;
+        grid-template-columns: 52px minmax(0, 1fr);
+        align-items: center;
+        gap: 14px;
+        min-height: 76px;
+        padding: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 8px;
+        background: rgba(40, 42, 46, 0.28);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+
+      .file-row.is-pending {
+        opacity: 0.72;
+      }
+
+      .file-row.is-complete {
+        border-color: rgba(0, 255, 194, 0.22);
+        background: rgba(40, 42, 46, 0.42);
+      }
+
+      .file-row.is-error {
+        border-color: rgba(255, 180, 171, 0.34);
+      }
+
+      .file-row-progress {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 2px;
+        width: 0%;
+        background: var(--accent);
+        box-shadow: 0 0 8px var(--accent);
+      }
+
+      .thumb {
+        position: relative;
+        overflow: hidden;
+        width: 52px;
+        height: 52px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        background: var(--surface-highest);
+      }
+
+      .thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .thumb-placeholder {
+        display: grid;
+        place-items: center;
+        width: 100%;
+        height: 100%;
+        color: var(--text-secondary);
+      }
+
+      .thumb-placeholder::before {
+        content: "";
+        width: 23px;
+        height: 18px;
+        border: 1.7px solid currentColor;
+        border-radius: 4px;
+        opacity: 0.82;
+        background:
+          radial-gradient(circle at 72% 32%, currentColor 0 2px, transparent 2.5px),
+          linear-gradient(135deg, transparent 42%, currentColor 43% 48%, transparent 49%);
+      }
+
+      .file-content {
+        min-width: 0;
+      }
+
+      .file-name {
+        overflow: hidden;
+        color: var(--primary);
+        font-size: 0.9rem;
+        line-height: 1.5;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .file-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 4px;
+        color: var(--text-secondary);
+        font-size: 0.74rem;
+        font-weight: 600;
+      }
+
+      .file-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--text-secondary);
+        white-space: nowrap;
+      }
+
+      .file-status::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: currentColor;
+        box-shadow: 0 0 8px currentColor;
+      }
+
+      .file-status.is-active,
+      .file-status.is-complete {
+        color: var(--accent);
+      }
+
+      .file-status.is-error {
+        color: var(--danger);
+      }
+
+      .empty-list {
+        padding: 22px 16px;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: var(--text-muted);
+        line-height: 1.55;
+        text-align: center;
+      }
+
+      @keyframes shimmer {
+        0% { transform: translateX(-100%); opacity: 0; }
+        50% { opacity: 1; }
+        100% { transform: translateX(100%); opacity: 0; }
+      }
+
+      @media (max-width: 360px) {
+        body {
+          padding-right: 10px;
+          padding-left: 10px;
+        }
+
+        .upload-panel {
+          padding: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top-bar">
+      <button class="icon-button" type="button" aria-label="返回" onclick="history.back()">
+        <span class="back-icon" aria-hidden="true">&lsaquo;</span>
+      </button>
+      <h1>已连接至电脑</h1>
+      <span aria-hidden="true"></span>
+    </header>
+
+    <main>
+      <section class="sync-card">
+        <form id="upload-form" class="upload-panel">
+          <input id="file-input" class="file-input" type="file" name="photos" accept="image/*" multiple required />
+          <label class="upload-drop" for="file-input" id="file-label">
+            <svg class="upload-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 16V7m0 0 3.5 3.5M12 7l-3.5 3.5M5 17.5A4.5 4.5 0 0 1 6.7 8.8 6 6 0 0 1 18 10.8a3.7 3.7 0 0 1 1 7.2H6.5" />
+            </svg>
+            <strong>点击上传</strong>
+            <small>选择手机原图，ChronosMap 会同步到电脑。<br />${escapedUrl}</small>
+          </label>
+
+          <div class="upload-actions">
+            <button id="submit-button" class="primary-button" type="submit" disabled>
+              <svg class="sync-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 6v5h-5M4 18v-5h5m9.2-4.8A7.5 7.5 0 0 0 6.5 7.3L4 10m16 4-2.5 2.7A7.5 7.5 0 0 1 5.8 15.8" />
+              </svg>
+              <span>开始同步</span>
+            </button>
+          </div>
+
+          <div class="progress-card">
+            <div class="progress-head">
+              <span>总体进度</span>
+              <strong id="progress-percent">0%</strong>
+            </div>
+            <div class="progress-bar">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <p id="status-message" class="status-message">等待选择图片。建议直接选择原图，压缩图片可能丢失 GPS 信息。</p>
+          </div>
+        </form>
+      </section>
+
+      <h2 class="section-title">正在上传文件</h2>
+      <section id="file-list" class="file-list">
+        <div class="empty-list">还没有选择文件。点击上方上传区域选择照片后，这里会显示每张图片的状态。</div>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById('upload-form');
+      const input = document.getElementById('file-input');
+      const submitButton = document.getElementById('submit-button');
+      const progressFill = document.getElementById('progress-fill');
+      const progressPercent = document.getElementById('progress-percent');
+      const statusMessage = document.getElementById('status-message');
+      const fileList = document.getElementById('file-list');
+
+      let selectedFiles = [];
+      let objectUrls = [];
+
+      function formatSize(bytes) {
+        if (!Number.isFinite(bytes) || bytes <= 0) {
+          return '未知大小';
+        }
+
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let value = bytes;
+        let index = 0;
+        while (value >= 1024 && index < units.length - 1) {
+          value = value / 1024;
+          index += 1;
+        }
+        return value.toFixed(index === 0 ? 0 : 1) + ' ' + units[index];
+      }
+
+      function setOverallProgress(percent) {
+        const normalized = Math.max(0, Math.min(100, Math.round(percent)));
+        progressFill.style.width = normalized + '%';
+        progressPercent.textContent = normalized + '%';
+      }
+
+      function clearObjectUrls() {
+        objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        objectUrls = [];
+      }
+
+      function getFileStatus(file, loadedBytes, totalBytes, isComplete, isError) {
+        if (isError) {
+          return { className: 'is-error', label: '上传失败', percent: 0 };
+        }
+
+        if (isComplete) {
+          return { className: 'is-complete', label: '已完成', percent: 100 };
+        }
+
+        if (!totalBytes || loadedBytes <= 0) {
+          return { className: 'is-pending', label: '等待中', percent: 0 };
+        }
+
+        let previousBytes = 0;
+        for (const item of selectedFiles) {
+          if (item === file) {
+            break;
+          }
+          previousBytes += item.size;
+        }
+
+        const fileLoaded = Math.max(0, Math.min(file.size, loadedBytes - previousBytes));
+        if (fileLoaded <= 0) {
+          return { className: 'is-pending', label: '等待中', percent: 0 };
+        }
+
+        const percent = Math.max(1, Math.min(99, Math.round((fileLoaded / file.size) * 100)));
+        return { className: 'is-active', label: '上传中 (' + percent + '%)', percent };
+      }
+
+      function renderFileList(loadedBytes = 0, totalBytes = 0, isComplete = false, isError = false) {
+        if (selectedFiles.length === 0) {
+          fileList.innerHTML = '<div class="empty-list">还没有选择文件。点击上方上传区域选择照片后，这里会显示每张图片的状态。</div>';
+          return;
+        }
+
+        fileList.innerHTML = '';
+        selectedFiles.forEach((file, index) => {
+          const status = getFileStatus(file, loadedBytes, totalBytes, isComplete, isError);
+          const row = document.createElement('div');
+          row.className = 'file-row ' + status.className;
+
+          const progress = document.createElement('div');
+          progress.className = 'file-row-progress';
+          progress.style.width = status.percent + '%';
+          row.appendChild(progress);
+
+          const thumb = document.createElement('div');
+          thumb.className = 'thumb';
+          if (objectUrls[index]) {
+            const img = document.createElement('img');
+            img.src = objectUrls[index];
+            img.alt = file.name;
+            thumb.appendChild(img);
+          } else {
+            thumb.innerHTML = '<div class="thumb-placeholder" aria-hidden="true"></div>';
+          }
+          row.appendChild(thumb);
+
+          const content = document.createElement('div');
+          content.className = 'file-content';
+
+          const name = document.createElement('div');
+          name.className = 'file-name';
+          name.textContent = file.name;
+          content.appendChild(name);
+
+          const meta = document.createElement('div');
+          meta.className = 'file-meta';
+
+          const size = document.createElement('span');
+          size.textContent = formatSize(file.size);
+          meta.appendChild(size);
+
+          const state = document.createElement('span');
+          state.className = 'file-status ' + status.className;
+          state.textContent = status.label;
+          meta.appendChild(state);
+
+          content.appendChild(meta);
+          row.appendChild(content);
+          fileList.appendChild(row);
+        });
+      }
+
+      input.addEventListener('change', () => {
+        clearObjectUrls();
+        selectedFiles = Array.from(input.files || []);
+        objectUrls = selectedFiles.map((file) => file.type.startsWith('image/') ? URL.createObjectURL(file) : '');
+
+        if (selectedFiles.length > 0) {
+          submitButton.disabled = false;
+          setOverallProgress(0);
+          statusMessage.className = 'status-message';
+          statusMessage.textContent = '已选择 ' + selectedFiles.length + ' 张图片，点击开始同步。';
+          renderFileList();
+        } else {
+          submitButton.disabled = true;
+          setOverallProgress(0);
+          statusMessage.className = 'status-message';
+          statusMessage.textContent = '等待选择图片。建议直接选择原图，压缩图片可能丢失 GPS 信息。';
+          renderFileList();
+        }
+      });
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!input.files || input.files.length === 0) {
+          return;
+        }
+
+        const data = new FormData();
+        for (const file of input.files) {
+          data.append('photos', file, file.name);
+        }
+
+        submitButton.disabled = true;
+        setOverallProgress(0);
+        statusMessage.className = 'status-message';
+        statusMessage.textContent = '正在建立连接并准备上传...';
+        renderFileList();
+
+        try {
+          const payload = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/upload');
+
+            xhr.upload.onprogress = (progressEvent) => {
+              if (!progressEvent.lengthComputable) {
+                statusMessage.textContent = '上传中...';
+                return;
+              }
+
+              const percent = Math.min(100, Math.round((progressEvent.loaded / progressEvent.total) * 100));
+              setOverallProgress(percent);
+              statusMessage.textContent = '正在上传 ' + selectedFiles.length + ' 张图片...';
+              renderFileList(progressEvent.loaded, progressEvent.total, false, false);
+            };
+
+            xhr.onload = () => {
+              try {
+                const body = JSON.parse(xhr.responseText || '{}');
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve(body);
+                  return;
+                }
+                reject(new Error(body.error || '上传失败'));
+              } catch (error) {
+                reject(error);
+              }
+            };
+
+            xhr.onerror = () => reject(new Error('网络连接失败'));
+            xhr.send(data);
+          });
+
+          setOverallProgress(100);
+          statusMessage.className = 'status-message';
+          statusMessage.textContent = payload.message || '上传成功';
+          renderFileList(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, true, false);
+          input.value = '';
+          submitButton.disabled = false;
+        } catch (error) {
+          statusMessage.className = 'status-message error';
+          statusMessage.textContent = error instanceof Error ? error.message : '上传失败，请检查网络';
+          renderFileList(0, 0, false, true);
+          submitButton.disabled = false;
+        }
+      });
+
+      window.addEventListener('pagehide', clearObjectUrls);
+    </script>
+  </body>
+</html>`;
+}
+
 function parseMultipartParts(body: Buffer, boundary: string) {
   const parts: Array<{ headers: string; content: Buffer }> = [];
   const boundaryBuffer = Buffer.from(`--${boundary}`);
@@ -462,13 +1203,15 @@ export class LanUploadService {
 
     const server = http.createServer(async (request, response) => {
       try {
-        if (request.method === 'GET' && request.url === '/') {
+        const requestPath = new URL(request.url ?? '/', 'http://localhost').pathname;
+
+        if (request.method === 'GET' && (requestPath === '/' || requestPath === '/index.html')) {
           response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-          response.end(buildUploadPage(this.state.url ?? ''));
+          response.end(buildMobileUploadPage(this.state.url ?? ''));
           return;
         }
 
-        if (request.method === 'POST' && request.url === '/upload') {
+        if (request.method === 'POST' && requestPath === '/upload') {
           const payload = await this.handleUploadRequest(request);
           response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           response.end(JSON.stringify(payload));

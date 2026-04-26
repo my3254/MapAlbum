@@ -1,42 +1,40 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700;800&display=swap');
 
 :root {
   color-scheme: dark;
-  
-  /* Core Colors */
-  --bg-base: #050505;
-  --bg-gradient-1: rgba(99, 102, 241, 0.15); /* Indigo */
-  --bg-gradient-2: rgba(16, 185, 129, 0.15); /* Emerald */
-  --bg-gradient-3: rgba(236, 72, 153, 0.15); /* Pink */
-  
-  /* Glass Panels */
-  --glass-bg: rgba(15, 15, 17, 0.65);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-border-hover: rgba(255, 255, 255, 0.16);
-  --glass-shadow: 0 24px 40px -8px rgba(0, 0, 0, 0.5);
-  --glass-blur: blur(32px);
-  
-  /* Text */
-  --text-primary: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.65);
-  --text-tertiary: rgba(255, 255, 255, 0.45);
-  
-  /* Accents */
-  --accent-main: #10b981; /* Emerald */
-  --accent-glow: rgba(16, 185, 129, 0.4);
-  --accent-hover: #34d399;
-  
-  /* Radius */
+  --background: #111317;
+  --background-deep: #0c0e12;
+  --surface: #1e2024;
+  --surface-low: #1a1c20;
+  --surface-high: #282a2e;
+  --surface-highest: #333539;
+  --surface-glass: rgba(17, 19, 23, 0.68);
+  --surface-glass-strong: rgba(12, 14, 18, 0.86);
+  --text-primary: #e2e2e8;
+  --text-secondary: #b9cbc1;
+  --text-muted: rgba(226, 226, 232, 0.56);
+  --text-faint: rgba(226, 226, 232, 0.34);
+  --accent-main: #00ffc2;
+  --accent-strong: #36ffc4;
+  --accent-dim: #00e1ab;
+  --accent-ink: #003828;
+  --accent-glow: rgba(0, 255, 194, 0.36);
+  --outline: rgba(131, 149, 140, 0.44);
+  --outline-weak: rgba(255, 255, 255, 0.1);
+  --danger: #ffb4ab;
+  --danger-bg: rgba(147, 0, 10, 0.28);
+  --shadow-soft: 0 18px 44px rgba(0, 0, 0, 0.38);
+  --shadow-hard: 0 28px 80px rgba(0, 0, 0, 0.54);
+  --blur-glass: blur(28px);
   --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
-  --radius-xl: 32px;
-  --radius-full: 9999px;
-  
-  /* Transitions */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-normal: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  --transition-slow: 500ms cubic-bezier(0.2, 0, 0, 1);
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --top-nav-height: 64px;
+  --window-controls-width: 156px;
+  --sidebar-width: 360px;
+  --transition-fast: 150ms ease;
+  --transition-normal: 260ms ease;
 }
 
 * {
@@ -53,10 +51,10 @@ body,
 }
 
 body {
-  background-color: var(--bg-base);
-  color: var(--text-primary);
-  font-family: 'Outfit', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
+  background: var(--background);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -64,21 +62,31 @@ body {
 button,
 input,
 textarea {
-  font-family: inherit;
+  font: inherit;
 }
 
 button {
+  border: 0;
   color: inherit;
-  outline: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 img {
-  max-width: 100%;
-  height: auto;
   display: block;
+  max-width: 100%;
 }
 
-h1, h2, h3, h4, h5, h6, p {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
   margin: 0;
 }
 
@@ -87,21 +95,19 @@ h1, h2, h3, h4, h5, h6, p {
   height: 6px;
 }
 
-::-webkit-scrollbar-thumb {
-  border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.15);
-  transition: background var(--transition-fast);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* Hide AMAP Logos globally */
+::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-pill);
+  background: rgba(131, 149, 140, 0.35);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(131, 149, 140, 0.62);
+}
+
 .amap-logo,
 .amap-copyright {
   display: none !important;
@@ -109,5 +115,5 @@ h1, h2, h3, h4, h5, h6, p {
 
 ::selection {
   background: var(--accent-glow);
-  color: var(--text-primary);
+  color: #fff;
 }

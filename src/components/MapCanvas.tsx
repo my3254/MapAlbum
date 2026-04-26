@@ -1,11 +1,19 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import AMapLoader from '@amap/amap-jsapi-loader';
+import { Clock3, Loader2, MapPin, Navigation, Search, Sparkles, X } from 'lucide-react';
 import type { AlbumSummary, LocationDraft } from '../shared/contracts';
 import { AMAP_WEB_KEY, ensureAmapSecurityConfig } from '../shared/amap-config';
 import { toLocalMediaUrl } from '../shared/media';
-import { buildAlbumSegments, createLocationDraft } from '../shared/location';
+import {
+  buildAlbumSegments,
+  createLocationDraft,
+  formatAlbumDisplayName,
+  formatAlbumSegmentsForDisplay,
+} from '../shared/location';
 
-const MARKER_PADDING = [140, 160, 140, 160] as const;
+const MARKER_PADDING = [120, 440, 120, 420] as const;
+const RECENT_MAP_SEARCH_STORAGE_KEY = 'chronos-map.recent-map-searches';
+const RECENT_MAP_SEARCH_LIMIT = 6;
 
 type GeoLevel = 'province' | 'city' | 'district' | 'album';
 
@@ -36,6 +44,10 @@ interface SearchResultItem {
   address: string;
   lng: number;
   lat: number;
+}
+
+interface RecentSearchItem extends SearchResultItem {
+  searchedAt: number;
 }
 
 function escapeHtml(value: string) {
@@ -85,6 +97,42 @@ function createCoordinateDraft(lng: number, lat: number) {
   });
 }
 
+function readRecentMapSearches(): RecentSearchItem[] {
+  try {
+    const rawValue = localStorage.getItem(RECENT_MAP_SEARCH_STORAGE_KEY);
+    if (!rawValue) {
+      return [];
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+    if (!Array.isArray(parsedValue)) {
+      return [];
+    }
+
+    return parsedValue
+      .filter((item): item is RecentSearchItem => (
+        typeof item?.id === 'string'
+        && typeof item.title === 'string'
+        && typeof item.address === 'string'
+        && typeof item.lng === 'number'
+        && typeof item.lat === 'number'
+        && typeof item.searchedAt === 'number'
+      ))
+      .slice(0, RECENT_MAP_SEARCH_LIMIT);
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+function persistRecentMapSearches(items: RecentSearchItem[]) {
+  try {
+    localStorage.setItem(RECENT_MAP_SEARCH_STORAGE_KEY, JSON.stringify(items.slice(0, RECENT_MAP_SEARCH_LIMIT)));
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 function getLevelSegments(album: AlbumSummary, level: GeoLevel) {
   const fullSegments = buildAlbumSegments(album);
 
@@ -99,7 +147,7 @@ function buildAggregateNodes(albums: AlbumSummary[], level: GeoLevel): Aggregate
     return albums.map((album) => ({
       key: album.relativePath,
       level,
-      title: album.displayName,
+      title: formatAlbumDisplayName(album),
       subtitle: `${album.imageCount} 张照片`,
       notePreview: (album.note || '').trim(),
       lng: album.lng,
@@ -126,7 +174,7 @@ function buildAggregateNodes(albums: AlbumSummary[], level: GeoLevel): Aggregate
     const lat = groupedAlbums.reduce((sum, album) => sum + album.lat, 0) / groupedAlbums.length;
     const imageCount = groupedAlbums.reduce((sum, album) => sum + album.imageCount, 0);
     const segments = getLevelSegments(groupedAlbums[0], level);
-    const title = segments.at(-1) ?? groupedAlbums[0].displayName;
+    const title = segments.at(-1) ?? formatAlbumDisplayName(groupedAlbums[0]);
     const subtitle = `${groupedAlbums.length} 个地点 · ${imageCount} 张照片`;
     const notePreview = groupedAlbums.find((album) => album.note?.trim())?.note?.trim() ?? '';
     const coverPaths = groupedAlbums
@@ -163,6 +211,85 @@ function renderMarkerMedia(coverPaths: string[]) {
     .join('');
 }
 
+function getMarkerTitle(node: AggregateNode) {
+  if (node.level !== 'album' || node.albums.length === 0) {
+    return node.title;
+  }
+
+  const segments = buildAlbumSegments(node.albums[0]);
+  return segments.at(-1) ?? node.title;
+}
+
+function getMarkerLocationLine(node: AggregateNode) {
+  if (node.albums.length === 0) {
+    return node.subtitle;
+  }
+
+  const segments = buildAlbumSegments(node.albums[0]);
+  if (node.level === 'album') {
+    return formatAlbumSegmentsForDisplay(segments.slice(0, -1)) || node.subtitle;
+  }
+
+  const visibleSegments = getLevelSegments(node.albums[0], node.level);
+  return formatAlbumSegmentsForDisplay(visibleSegments) || node.subtitle;
+}
+
+function renderMarkerStatIcon(type: 'pin' | 'image') {
+  if (type === 'pin') {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 22s7-6.2 7-13A7 7 0 0 0 5 9c0 6.8 7 13 7 13Z" />
+        <circle cx="12" cy="9" r="2.4" />
+      </svg>
+    `;
+  }
+
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="8.4" cy="9" r="1.7" />
+      <path d="m5 18 5.5-6 4.1 4.3 2.3-2.7L20 18" />
+    </svg>
+  `;
+}
+
+function renderMarkerCaption(node: AggregateNode) {
+  const title = escapeHtml(getMarkerTitle(node));
+  const locationLine = escapeHtml(getMarkerLocationLine(node));
+  const albumCount = node.albumCount;
+  const imageCount = node.imageCount;
+  const note = node.notePreview.trim();
+
+  return `
+    <div class="map-marker__caption">
+      <div class="map-marker__caption-menu" aria-hidden="true"><span></span><span></span><span></span></div>
+      <strong class="map-marker__title">${title}</strong>
+      <span class="map-marker__location">${locationLine}</span>
+      <div class="map-marker__divider"></div>
+      <div class="map-marker__stats" aria-label="地点和照片数量">
+        <span class="map-marker__stat">
+          <span class="map-marker__stat-icon">${renderMarkerStatIcon('pin')}</span>
+          <strong>${albumCount}</strong>
+          <em>个地点</em>
+        </span>
+        <span class="map-marker__stats-divider"></span>
+        <span class="map-marker__stat">
+          <span class="map-marker__stat-icon">${renderMarkerStatIcon('image')}</span>
+          <strong>${imageCount}</strong>
+          <em>张照片</em>
+        </span>
+      </div>
+      ${note ? `
+        <div class="map-marker__divider"></div>
+        <div class="map-marker__note">
+          <span class="map-marker__note-label">留言</span>
+          <p>${escapeHtml(note)}</p>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
 interface MapCanvasProps {
   albums: AlbumSummary[];
   draftLocation: LocationDraft | null;
@@ -193,6 +320,8 @@ function MapCanvasInner({
   const [searchKeyword, setSearchKeyword] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>(() => readRecentMapSearches());
 
   const handlersRef = useRef({ onLocationPicked, onSelectAlbum, onMapError });
   useEffect(() => {
@@ -200,6 +329,30 @@ function MapCanvasInner({
   }, [onLocationPicked, onSelectAlbum, onMapError]);
 
   const nodes = useMemo(() => buildAggregateNodes(albums, visibleLevel), [albums, visibleLevel]);
+  const shouldShowSearchBody = isSearchFocused || isSearching || searchResults.length > 0;
+  const shouldShowRecentSearches = recentSearches.length > 0 && searchResults.length === 0;
+
+  function pushRecentSearch(result: SearchResultItem) {
+    setRecentSearches((current) => {
+      const nextSearches = [
+        { ...result, searchedAt: Date.now() },
+        ...current.filter((item) => item.id !== result.id && !(item.title === result.title && item.address === result.address)),
+      ].slice(0, RECENT_MAP_SEARCH_LIMIT);
+
+      persistRecentMapSearches(nextSearches);
+      return nextSearches;
+    });
+  }
+
+  function clearRecentSearches() {
+    setRecentSearches([]);
+    persistRecentMapSearches([]);
+  }
+
+  function clearSearchKeyword() {
+    setSearchKeyword('');
+    setSearchResults([]);
+  }
 
   async function resolveLocationDraft(lng: number, lat: number) {
     const geocoder = geocoderRef.current;
@@ -292,8 +445,10 @@ function MapCanvasInner({
   }
 
   async function handlePickSearchResult(result: SearchResultItem) {
+    pushRecentSearch(result);
     setSearchKeyword(result.title);
     setSearchResults([]);
+    setIsSearchFocused(false);
     mapRef.current?.setZoomAndCenter(14.5, [result.lng, result.lat], true);
     handlersRef.current.onLocationPicked(await resolveLocationDraft(result.lng, result.lat));
   }
@@ -318,7 +473,7 @@ function MapCanvasInner({
         const map = new AMap.Map(mapElementRef.current, {
           zoom: 4.8,
           center: [104.195397, 35.86166],
-          mapStyle: 'amap://styles/grey',
+          mapStyle: 'amap://styles/darkblue',
           viewMode: '2D',
         });
         setVisibleLevel(getVisibleLevel(map.getZoom()));
@@ -415,21 +570,20 @@ function MapCanvasInner({
       markerNode.className = `map-marker${!isAlbumNode ? ' map-marker--aggregate' : ''}`;
       markerNode.type = 'button';
       markerNode.innerHTML = `
-        <div class="map-marker__media">
-          ${renderMarkerMedia(node.coverPaths)}
+        <div class="map-marker__pin">
+          <div class="map-marker__ring">
+            ${renderMarkerMedia(node.coverPaths)}
+          </div>
+          <div class="map-marker__badge">${node.imageCount}</div>
+          <div class="map-marker__tail"></div>
         </div>
-        <div class="map-marker__badge">${node.imageCount}</div>
-        <div class="map-marker__caption">
-          <strong>${escapeHtml(node.title)}</strong>
-          <span>${escapeHtml(node.subtitle)}</span>
-          ${node.notePreview ? `<p class="map-marker__note">${escapeHtml(node.notePreview)}</p>` : ''}
-        </div>
+        ${renderMarkerCaption(node)}
       `;
 
       const marker = new amapRef.current.Marker({
         position: [node.lng, node.lat],
         content: markerNode,
-        offset: new amapRef.current.Pixel(-32, -68),
+        offset: new amapRef.current.Pixel(-34, -92),
         title: node.title,
       });
 
@@ -512,38 +666,115 @@ function MapCanvasInner({
 
   return (
     <>
-      <div className="map-search-panel">
+      <div className={`map-search-panel${shouldShowSearchBody ? ' map-search-panel--open' : ''}`}>
         <div className="map-search-bar">
+          <Search className="map-search-bar__icon" size={17} />
           <input
             type="text"
             value={searchKeyword}
             placeholder="搜索地点、商圈、景点或地址"
-            onChange={(event) => setSearchKeyword(event.target.value)}
+            onFocus={() => setIsSearchFocused(true)}
+            onChange={(event) => {
+              setSearchKeyword(event.target.value);
+              if (searchResults.length > 0) {
+                setSearchResults([]);
+              }
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();
                 void handleSearch();
               }
+              if (event.key === 'Escape') {
+                setIsSearchFocused(false);
+                setSearchResults([]);
+              }
             }}
           />
+          {searchKeyword && (
+            <button
+              type="button"
+              className="map-search-bar__clear"
+              onClick={clearSearchKeyword}
+              title="清空搜索"
+            >
+              <X size={15} />
+            </button>
+          )}
           <button type="button" className="map-search-bar__button" onClick={() => void handleSearch()}>
-            {isSearching ? '搜索中...' : '搜索'}
+            {isSearching ? <Loader2 className="spin-icon" size={16} /> : <Navigation size={15} />}
+            <span>{isSearching ? '搜索中' : '搜索'}</span>
           </button>
         </div>
 
-        {searchResults.length > 0 && (
-          <div className="map-search-results">
-            {searchResults.map((result) => (
-              <button
-                key={result.id}
-                type="button"
-                className="map-search-result"
-                onClick={() => void handlePickSearchResult(result)}
-              >
-                <strong>{result.title}</strong>
-                <span>{result.address}</span>
-              </button>
-            ))}
+        {shouldShowSearchBody && (
+          <div className="map-search-drawer">
+            <div className="map-search-drawer__header">
+              <div>
+                <span>{searchResults.length > 0 ? '搜索结果' : '地点探索'}</span>
+                <strong>{searchResults.length > 0 ? `${searchResults.length} 个候选地点` : '输入地点后按 Enter 搜索'}</strong>
+              </div>
+              {shouldShowRecentSearches && (
+                <button type="button" onClick={clearRecentSearches}>
+                  清空记录
+                </button>
+              )}
+            </div>
+
+            {isSearching && (
+              <div className="map-search-loading">
+                <Loader2 className="spin-icon" size={18} />
+                <span>正在搜索附近地点...</span>
+              </div>
+            )}
+
+            {!isSearching && searchResults.length > 0 && (
+              <div className="map-search-results">
+                {searchResults.map((result) => (
+                  <button
+                    key={result.id}
+                    type="button"
+                    className="map-search-result"
+                    onClick={() => void handlePickSearchResult(result)}
+                  >
+                    <span className="map-search-result__icon">
+                      <MapPin size={16} />
+                    </span>
+                    <span className="map-search-result__content">
+                      <strong>{result.title}</strong>
+                      <span>{result.address}</span>
+                    </span>
+                    <span className="map-search-result__action">定位</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!isSearching && searchResults.length === 0 && recentSearches.length > 0 && (
+              <div className="map-search-recents">
+                {recentSearches.map((item) => (
+                  <button
+                    key={`${item.id}-${item.searchedAt}`}
+                    type="button"
+                    className="map-search-recent"
+                    onClick={() => void handlePickSearchResult(item)}
+                  >
+                    <Clock3 size={15} />
+                    <span>
+                      <strong>{item.title}</strong>
+                      <small>{item.address}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!isSearching && searchResults.length === 0 && recentSearches.length === 0 && (
+              <div className="map-search-empty">
+                <Sparkles size={18} />
+                <span>搜索景点、商圈、酒店或详细地址，选择结果后会在地图上生成一个可归档点。</span>
+              </div>
+            )}
           </div>
         )}
       </div>
