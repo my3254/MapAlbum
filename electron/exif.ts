@@ -172,4 +172,21 @@ function parseGpsFromBuffer(buffer: Buffer): ImageGpsCoordinate | null {
     return null;
   }
 
-  if (latRef.type !== TYPE_ASCII || lngRef.ty
+  if (latRef.type !== TYPE_ASCII || lngRef.type !== TYPE_ASCII || lat.type !== TYPE_RATIONAL || lng.type !== TYPE_RATIONAL) {
+    return null;
+  }
+
+  const latitudeRef = readAsciiValue(buffer, tiffStart, latRef);
+  const longitudeRef = readAsciiValue(buffer, tiffStart, lngRef);
+  const latitude = dmsToDecimal(readRationalArray(buffer, tiffStart, lat, littleEndian), latitudeRef);
+  const longitude = dmsToDecimal(readRationalArray(buffer, tiffStart, lng, littleEndian), longitudeRef);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  return {
+    lng: longitude,
+    lat: latitude,
+  };
+}

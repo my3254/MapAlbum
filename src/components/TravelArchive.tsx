@@ -625,4 +625,7 @@ function TravelArchiveInner({
         )}
       </section>
     </section>
-  );
+  );
+}
+
+export const TravelArchive = memo(TravelArchiveInner);

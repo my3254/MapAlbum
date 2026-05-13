@@ -646,4 +646,26 @@ function registerIpcHandlers() {
 app.whenReady().then(async () => {
   await ensureLocalMediaProtocol();
   registerIpcHandlers();
-  awa
+  await createMainWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void createMainWindow();
+    }
+  });
+}).catch((error) => {
+  console.error('Electron bootstrap failed:', error);
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('before-quit', () => {
+  void getLanUploadService().stop();
+});
+
+
+

@@ -927,4 +927,30 @@ export default function App() {
           images={viewerSource}
           currentIndex={viewerIndex}
           onClose={() => setViewerIndex(null)}
-          onIndexChange={setVie
+          onIndexChange={setViewerIndex}
+        />
+      )}
+
+      {notice && <div className="notice-bar">{notice}</div>}
+      
+      {!rootFolder && hasLoadedRootFolder && (
+        <div className="setup-overlay">
+          <div className="setup-card">
+            <div className="setup-card__brand">
+              <div className="setup-card__eyebrow">Welcome To</div>
+              <h1>旅行者相册</h1>
+            </div>
+            <p>
+              请先选择一个根目录来存放和管理您的照片相册。<br />
+              旅行者相册将基于此目录生成地理位置归档。
+            </p>
+            <button className="button button--primary" onClick={chooseRootFolder}>
+              立即选择根目录
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+

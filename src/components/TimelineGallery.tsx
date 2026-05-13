@@ -415,4 +415,7 @@ function TimelineGalleryInner({
         </nav>
       </div>
     </div>
-  );
+  );
+}
+
+export const TimelineGallery = memo(TimelineGalleryInner);

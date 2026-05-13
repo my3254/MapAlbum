@@ -132,4 +132,9 @@ function LanUploadPanelInner({
             手机和电脑在同一网络下时，可以直接上传原图；如果照片带有 GPS，会自动尝试定位。
           </p>
         </section>
-      </
+      </div>
+    </aside>
+  );
+}
+
+export const LanUploadPanel = memo(LanUploadPanelInner);

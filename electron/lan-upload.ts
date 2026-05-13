@@ -1350,4 +1350,20 @@ export class LanUploadService {
       throw new Error('No image files were uploaded.');
     }
 
-    con
+    const batch: LanUploadBatch = {
+      id: randomUUID(),
+      receivedAt: new Date().toISOString(),
+      files,
+    };
+    this.pendingBatches.push(batch);
+
+    const gpsCount = files.filter((file) => file.gps).length;
+    return {
+      ok: true,
+      batchId: batch.id,
+      message: gpsCount > 0
+        ? `已上传 ${files.length} 张照片，其中 ${gpsCount} 张带有 GPS 信息。`
+        : `已上传 ${files.length} 张照片，但未检测到 GPS 信息。`,
+    };
+  }
+}

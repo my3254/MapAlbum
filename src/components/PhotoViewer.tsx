@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { memo, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { toLocalMediaUrl } from '../shared/media';
 
@@ -9,7 +9,7 @@ interface PhotoViewerProps {
   onIndexChange: (index: number) => void;
 }
 
-export function PhotoViewer({ images, currentIndex, onClose, onIndexChange }: PhotoViewerProps) {
+function PhotoViewerInner({ images, currentIndex, onClose, onIndexChange }: PhotoViewerProps) {
   const currentImage = images[currentIndex];
 
   const handlePrev = useCallback(() => {
@@ -70,3 +70,5 @@ export function PhotoViewer({ images, currentIndex, onClose, onIndexChange }: Ph
     </div>
   );
 }
+
+export const PhotoViewer = memo(PhotoViewerInner);
