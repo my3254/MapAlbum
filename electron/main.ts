@@ -42,6 +42,7 @@ let mainWindow: BrowserWindow | null = null;
 let localMediaProtocolRegistered = false;
 let lanUploadService: LanUploadService | null = null;
 const timelineIndexCache = new Map<string, TimelineImageMetadata[]>();
+const TIMELINE_CACHE_MAX_ENTRIES = 2; // 限制缓存条目数，避免内存无限增长
 
 function getLanUploadService() {
   if (!lanUploadService) {
@@ -280,14 +281,14 @@ async function saveAlbum(rootFolder: string, location: AlbumLocationInput, sourc
 
   await fs.mkdir(albumDirectory, { recursive: true });
 
-  const addedImages: string[] = [];
-  for (const sourcePath of sourcePaths) {
+  const copyTasks = sourcePaths.map(async (sourcePath) => {
     const extension = path.extname(sourcePath).toLowerCase();
     const targetName = `${Date.now()}-${randomUUID().slice(0, 8)}${extension}`;
     const targetPath = path.join(albumDirectory, targetName);
     await fs.copyFile(sourcePath, targetPath);
-    addedImages.push(targetPath);
-  }
+    return targetPath;
+  });
+  const addedImages = await Promise.all(copyTasks);
 
   const nextMeta: AlbumMetaFile = {
     ...draft,
@@ -407,6 +408,15 @@ async function getTimelinePage(
   }
 
   if (refresh || !timelineIndexCache.has(rootFolder)) {
+    // 缓存前先驱逐多余的旧条目
+    while (timelineIndexCache.size >= TIMELINE_CACHE_MAX_ENTRIES) {
+      const oldestKey = timelineIndexCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        timelineIndexCache.delete(oldestKey);
+      } else {
+        break;
+      }
+    }
     timelineIndexCache.set(rootFolder, await buildTimelineIndex(rootFolder));
   }
 
@@ -636,26 +646,4 @@ function registerIpcHandlers() {
 app.whenReady().then(async () => {
   await ensureLocalMediaProtocol();
   registerIpcHandlers();
-  await createMainWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      void createMainWindow();
-    }
-  });
-}).catch((error) => {
-  console.error('Electron bootstrap failed:', error);
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-app.on('before-quit', () => {
-  void getLanUploadService().stop();
-});
-
-
-
+  awa

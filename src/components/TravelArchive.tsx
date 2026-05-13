@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   Calendar,
@@ -67,7 +67,7 @@ function getFileName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;
 }
 
-export function TravelArchive({
+function TravelArchiveInner({
   albums,
   isLoading,
   rootFolder,
@@ -625,5 +625,4 @@ export function TravelArchive({
         )}
       </section>
     </section>
-  );
-}
+  );

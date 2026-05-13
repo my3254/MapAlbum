@@ -116,19 +116,34 @@ function extractExifSegment(buffer: Buffer) {
   return null;
 }
 
+const EXIF_HEADER_READ_BYTES = 128 * 1024; // 128 KB 足够覆盖所有 JPEG 的 EXIF 段
+
+export function extractImageGpsFromBuffer(buffer: Buffer): ImageGpsCoordinate | null {
+  return parseGpsFromBuffer(buffer);
+}
+
 export async function extractImageGps(filePath: string): Promise<ImageGpsCoordinate | null> {
   const extension = path.extname(filePath).toLowerCase();
   if (extension !== '.jpg' && extension !== '.jpeg') {
     return null;
   }
 
-  let buffer: Buffer;
+  let fd: Awaited<ReturnType<typeof fs.open>> | null = null;
   try {
-    buffer = await fs.readFile(filePath);
+    fd = await fs.open(filePath, 'r');
+    const header = Buffer.alloc(EXIF_HEADER_READ_BYTES);
+    const { bytesRead } = await fd.read(header, 0, header.length, 0);
+    return parseGpsFromBuffer(header.subarray(0, bytesRead));
   } catch {
     return null;
+  } finally {
+    if (fd) {
+      await fd.close().catch(() => {});
+    }
   }
+}
 
+function parseGpsFromBuffer(buffer: Buffer): ImageGpsCoordinate | null {
   const tiffStart = extractExifSegment(buffer);
   if (tiffStart == null || tiffStart + 8 >= buffer.length) {
     return null;
@@ -157,21 +172,4 @@ export async function extractImageGps(filePath: string): Promise<ImageGpsCoordin
     return null;
   }
 
-  if (latRef.type !== TYPE_ASCII || lngRef.type !== TYPE_ASCII || lat.type !== TYPE_RATIONAL || lng.type !== TYPE_RATIONAL) {
-    return null;
-  }
-
-  const latitudeRef = readAsciiValue(buffer, tiffStart, latRef);
-  const longitudeRef = readAsciiValue(buffer, tiffStart, lngRef);
-  const latitude = dmsToDecimal(readRationalArray(buffer, tiffStart, lat, littleEndian), latitudeRef);
-  const longitude = dmsToDecimal(readRationalArray(buffer, tiffStart, lng, littleEndian), longitudeRef);
-
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return null;
-  }
-
-  return {
-    lng: longitude,
-    lat: latitude,
-  };
-}
+  if (latRef.type !== TYPE_ASCII || lngRef.ty

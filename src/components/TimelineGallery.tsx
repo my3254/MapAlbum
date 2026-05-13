@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Calendar, Trash2 } from 'lucide-react';
 import type { TimelineImageMetadata } from '../shared/contracts';
 import { toLocalMediaUrl } from '../shared/media';
@@ -84,7 +84,7 @@ function readTimelineMetrics(element: HTMLDivElement): TimelineLayoutMetrics {
   };
 }
 
-export function TimelineGallery({
+function TimelineGalleryInner({
   deletingImagePath,
   images,
   hasMore,
@@ -415,5 +415,4 @@ export function TimelineGallery({
         </nav>
       </div>
     </div>
-  );
-}
+  );

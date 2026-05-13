@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, Calendar, Compass, Menu, Settings, Smartphone, UploadCloud } from 'lucide-react';
 import './App.css';
 import { InspectorPanel } from './components/InspectorPanel';
@@ -710,6 +710,52 @@ export default function App() {
     setSelectedStagedImagePaths([]);
   }
 
+  // --- 稳定的回调引用（避免子组件因 props 变化而不必要地重渲染） ---
+
+  const handleSidebarClose = useCallback(() => setIsSidebarOpen(false), []);
+  const handleLanPanelClose = useCallback(() => setIsLanPanelOpen(false), []);
+  const handleInspectorCloseDraft = useCallback(() => setDraftLocation(null), []);
+  const handleInspectorCloseAlbum = useCallback(() => setSelectedAlbumPath(null), []);
+  const handleTimelineClose = useCallback(() => setViewMode('map'), []);
+
+  const handleOpenLanUpload = useCallback(() => {
+    setIsLanPanelOpen(true);
+    setViewMode('map');
+  }, []);
+
+  const handlePickSearchedLocation = useCallback((location: LocationDraft) => {
+    setSelectedAlbumPath(null);
+    setDraftLocation(location);
+    setViewMode('map');
+    setIsLanPanelOpen(false);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    setReloadTick((value) => value + 1);
+  }, []);
+
+  const handleShowArchive = useCallback(() => {
+    setViewMode('archive');
+    setSelectedAlbumPath(null);
+    setDraftLocation(null);
+    setIsLanPanelOpen(false);
+  }, []);
+
+  const handleShowMap = useCallback(() => {
+    setViewMode('map');
+    setIsLanPanelOpen(false);
+  }, []);
+
+  const handleShowTimeline = useCallback(() => {
+    setViewMode('timeline');
+    setIsLanPanelOpen(false);
+  }, []);
+
+  const handleTravelArchiveOpenImages = useCallback((images: ImageMetadata[], index: number) => {
+    setViewerSource(images);
+    setViewerIndex(index);
+  }, []);
+
   return (
     <div className={`app-shell${isSidebarOpen ? '' : ' app-shell--sidebar-collapsed'}`}>
       <div className="titlebar-drag-region" />
@@ -772,7 +818,7 @@ export default function App() {
       <Sidebar
         isOpen={isSidebarOpen}
         isLanUploadOpen={isLanPanelOpen}
-        onClose={() => setIsSidebarOpen(false)}
+        onClose={handleSidebarClose}
         albums={albums}
         deletingAlbumPath={deletingAlbumPath}
         isLoading={isAlbumsLoading}
@@ -780,38 +826,15 @@ export default function App() {
         selectedAlbumPath={selectedAlbumPath}
         viewMode={viewMode}
         onChooseImages={chooseImages}
-        onOpenLanUpload={() => {
-          setIsLanPanelOpen(true);
-          setViewMode('map');
-        }}
-        onPickSearchedLocation={(location) => {
-          setSelectedAlbumPath(null);
-          setDraftLocation(location);
-          setViewMode('map');
-          setIsLanPanelOpen(false);
-        }}
-        onRefresh={() => {
-          if (rootFolder) {
-            setReloadTick((value) => value + 1);
-          }
-        }}
+        onOpenLanUpload={handleOpenLanUpload}
+        onPickSearchedLocation={handlePickSearchedLocation}
+        onRefresh={handleRefresh}
         onDeleteAlbum={deleteAlbum}
         onSearchError={setNotice}
         onSelectAlbum={handleSelectAlbum}
-        onShowArchive={() => {
-          setViewMode('archive');
-          setSelectedAlbumPath(null);
-          setDraftLocation(null);
-          setIsLanPanelOpen(false);
-        }}
-        onShowMap={() => {
-          setViewMode('map');
-          setIsLanPanelOpen(false);
-        }}
-        onShowTimeline={() => {
-          setViewMode('timeline');
-          setIsLanPanelOpen(false);
-        }}
+        onShowArchive={handleShowArchive}
+        onShowMap={handleShowMap}
+        onShowTimeline={handleShowTimeline}
       />
 
       <LanUploadPanel
@@ -819,7 +842,7 @@ export default function App() {
         lanQrUrl={lanQrUrl}
         lanUploadState={lanUploadState}
         recentUploads={recentLanUploads}
-        onClose={() => setIsLanPanelOpen(false)}
+        onClose={handleLanPanelClose}
         onStartLanUpload={startLanUpload}
         onStopLanUpload={stopLanUpload}
       />
@@ -833,10 +856,7 @@ export default function App() {
             rootFolder={rootFolder}
             onChooseRootFolder={chooseRootFolder}
             onDeleteImage={deleteAlbumImage}
-            onOpenImages={(images, index) => {
-              setViewerSource(images);
-              setViewerIndex(index);
-            }}
+            onOpenImages={handleTravelArchiveOpenImages}
             onSetCover={setAlbumCover}
           />
         ) : (
@@ -861,8 +881,8 @@ export default function App() {
           isAlbumImagesLoading={isAlbumImagesLoading}
           selectedAlbum={selectedAlbum}
           onChooseImages={chooseImages}
-          onCloseDraft={() => setDraftLocation(null)}
-          onCloseSelectedAlbum={() => setSelectedAlbumPath(null)}
+          onCloseDraft={handleInspectorCloseDraft}
+          onCloseSelectedAlbum={handleInspectorCloseAlbum}
           onDeleteImage={deleteAlbumImage}
           onSetCover={setAlbumCover}
           onSetNote={setAlbumNote}
@@ -898,7 +918,7 @@ export default function App() {
             void deleteAlbumImage(image.albumPath, image.path);
           }}
           onViewImage={handleViewTimelineImage}
-          onClose={() => setViewMode('map')}
+          onClose={handleTimelineClose}
         />
       )}
 
@@ -907,30 +927,4 @@ export default function App() {
           images={viewerSource}
           currentIndex={viewerIndex}
           onClose={() => setViewerIndex(null)}
-          onIndexChange={setViewerIndex}
-        />
-      )}
-
-      {notice && <div className="notice-bar">{notice}</div>}
-      
-      {!rootFolder && hasLoadedRootFolder && (
-        <div className="setup-overlay">
-          <div className="setup-card">
-            <div className="setup-card__brand">
-              <div className="setup-card__eyebrow">Welcome To</div>
-              <h1>旅行者相册</h1>
-            </div>
-            <p>
-              请先选择一个根目录来存放和管理您的照片相册。<br />
-              旅行者相册将基于此目录生成地理位置归档。
-            </p>
-            <button className="button button--primary" onClick={chooseRootFolder}>
-              立即选择根目录
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
+          onIndexChange={setVie

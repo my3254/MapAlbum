@@ -4,7 +4,7 @@ import http from 'http';
 import os from 'os';
 import path from 'path';
 import type { ImportedImageFile, LanServerState, LanUploadBatch } from '../src/shared/contracts';
-import { extractImageGps } from './exif';
+import { extractImageGpsFromBuffer } from './exif';
 
 const IMAGE_CONTENT_TYPES = new Set([
   'image/jpeg',
@@ -1199,6 +1199,12 @@ export class LanUploadService {
       throw new Error('No available IPv4 address found on this device.');
     }
 
+    // 启动前清理上次残留的临时上传文件
+    try {
+      await fs.rm(this.tempRoot, { recursive: true, force: true });
+    } catch {
+      // 目录可能不存在，忽略
+    }
     await fs.mkdir(this.tempRoot, { recursive: true });
 
     const server = http.createServer(async (request, response) => {
@@ -1276,6 +1282,14 @@ export class LanUploadService {
 
     this.server = null;
     this.pendingBatches = [];
+
+    // 停止时清理临时上传目录
+    try {
+      await fs.rm(this.tempRoot, { recursive: true, force: true });
+    } catch {
+      // 忽略清理失败
+    }
+
     this.state = {
       isRunning: false,
       url: null,
@@ -1319,12 +1333,16 @@ export class LanUploadService {
 
       const safeName = sanitizeFileName(path.basename(disposition.fileName));
       const filePath = path.join(batchDirectory, `${Date.now()}-${randomUUID().slice(0, 8)}-${safeName}`);
+
+      // 先从内存 Buffer 提取 EXIF GPS，避免写盘后再读取整个文件
+      const gps = extractImageGpsFromBuffer(part.content);
+
       await fs.writeFile(filePath, part.content);
 
       files.push({
         path: filePath,
         originalName: safeName,
-        gps: await extractImageGps(filePath),
+        gps,
       });
     }
 
@@ -1332,20 +1350,4 @@ export class LanUploadService {
       throw new Error('No image files were uploaded.');
     }
 
-    const batch: LanUploadBatch = {
-      id: randomUUID(),
-      receivedAt: new Date().toISOString(),
-      files,
-    };
-    this.pendingBatches.push(batch);
-
-    const gpsCount = files.filter((file) => file.gps).length;
-    return {
-      ok: true,
-      batchId: batch.id,
-      message: gpsCount > 0
-        ? `已上传 ${files.length} 张照片，其中 ${gpsCount} 张带有 GPS 信息。`
-        : `已上传 ${files.length} 张照片，但未检测到 GPS 信息。`,
-    };
-  }
-}
+    con
